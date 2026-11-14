@@ -1,0 +1,9 @@
+{
+  "name": "papertrail-local",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": { "start": "node --env-file-if-exists=.env src/server.js", "test": "node --test --test-isolation=none" },
+  "dependencies": { "@openworkerai/harness-sdk": "0.1.0-beta.4" }
+}

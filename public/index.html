@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Papertrail · Local research library</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/" aria-label="Papertrail home"><span class="brand-icon">▤</span> papertrail<span class="brand-dot">.</span></a>
+  <div class="workspace-label">YOUR WORKSPACE</div>
+  <div class="nav-active"><span>▦</span> Paper library <span id="nav-count" class="badge">0</span></div>
+  <div class="sidebar-section"><div class="section-label">INDEXED FOLDERS</div><div id="roots" class="roots">Your folders will appear here.</div></div>
+  <div class="local-note"><span class="status-dot"></span> Stored on this device<p>Your PDFs stay in their folders.<br>Search works entirely offline.</p></div>
+</aside>
+<main>
+  <header><span>Workspace <span class="slash">/</span> Paper library</span><span class="local-pill"><span class="status-dot"></span> Local library</span></header>
+  <section class="heading"><div><div class="eyebrow">A LITTLE ORDER FOR YOUR NEXT DISCOVERY</div><h1>Your research, within reach.</h1><p>Find the passage. Follow the evidence. Get back to the interesting part.</p></div><button id="add-folder" class="primary">＋ Add a folder</button></section>
+  <section class="metrics" aria-label="Library statistics"><div><span id="total">0</span><small>Papers in library</small></div><div><span id="pages">0</span><small>Pages indexed</small></div><div><span id="ready">0</span><small>Searchable papers</small></div><div><span id="attention">0</span><small>Need attention</small></div></section>
+  <section class="search-box"><label for="search" aria-hidden="true">⌕</label><input id="search" aria-label="Search titles and full text" type="search" placeholder="Search titles and full text…" autocomplete="off"><kbd>/</kbd><button id="search-button" class="primary">Search library</button></section>
+  <div class="search-options" aria-label="Search options">
+    <fieldset><legend>Matching</legend><label><input type="checkbox" id="case-insensitive" checked> Case-insensitive</label><label><input type="checkbox" id="fuzzy"> Fuzzy search</label></fieldset>
+    <fieldset id="search-fields"><legend>Search in</legend><label><input type="checkbox" value="title" checked> Title</label><label><input type="checkbox" value="abstract"> Abstract</label><label><input type="checkbox" value="authors"> Authors</label><label><input type="checkbox" value="text" checked> Full text</label></fieldset>
+  </div>
+  <div class="search-hint" id="search-hint">Whole words · Case insensitive · Any term in the selected fields.</div>
+  <div id="notification" role="status" hidden></div>
+  <section id="job" class="job" hidden><div><strong id="job-title"></strong><button id="cancel-import" class="text-button">Stop import</button></div><progress id="progress" value="0" max="1"></progress><p id="job-detail"></p><details id="issues" hidden><summary>Import notes</summary><pre id="issue-list"></pre></details></section>
+  <div class="library-layout"><section class="results-panel"><div class="results-heading"><h2 id="results-heading">All papers</h2><span id="results-count">0 papers</span></div><div id="results"></div><button id="more" class="secondary" hidden>Load more papers</button></section>
+  <aside class="assistant"><div class="ai-symbol">✧</div><div class="eyebrow">RESEARCH COMPANION</div><h2>Connect the dots.</h2><p>Ask a question about your search results. Get an answer grounded in passages from your library.</p><label for="question">Your question</label><textarea id="question" rows="4" maxlength="2000" placeholder="What do these papers say about early cancer detection?"></textarea><button id="ask" class="primary">✧ Ask your library</button><button id="stop-ai" class="secondary" hidden>Stop answer</button><p id="ai-status" class="fine-print">Optional · Set up a provider in .env to enable.</p><div id="answer" aria-live="polite"></div><div id="sources"></div><div class="assistant-footer">Your search works without AI.<br>When enabled, relevant excerpts go to your configured provider.</div></aside></div>
+  <footer>Made for curious minds. <span>PDFs → local index → a clearer picture.</span></footer>
+</main>
+<dialog id="import-dialog"><form id="import-form"><div class="dialog-top"><span class="eyebrow">GROW YOUR LIBRARY</span><button type="button" id="close-import" class="text-button" aria-label="Close">✕</button></div><h2>A home for your papers.</h2><p>Enter a folder path on the machine running Papertrail. PDFs in all subfolders will be included.</p><label for="folder">Folder path</label><input id="folder" required placeholder="/path/to/your/papers" autocomplete="off"><p class="fine-print">Text-based PDFs · Existing files stay in place · Rescan anytime</p><button type="submit" class="primary">Index folder →</button></form></dialog>
+<dialog id="paper-dialog"><div class="dialog-top"><span class="eyebrow">PAPER DETAILS</span><button id="close-paper" class="text-button" aria-label="Close">✕</button></div><h2 id="paper-title"></h2><p id="paper-path"></p><a id="paper-link" class="primary" target="_blank" rel="noopener">Open PDF ↗</a><details class="metadata-editor"><summary>Authors and abstract</summary><p id="metadata-note" class="fine-print">Detected from opening pages; review and correct if needed. Missing fields do not match field-only searches.</p><form id="metadata-form"><label for="paper-authors">Authors</label><textarea id="paper-authors" rows="2" maxlength="4000"></textarea><label for="paper-abstract">Abstract</label><textarea id="paper-abstract" rows="7" maxlength="12000"></textarea><button class="secondary" type="submit">Save metadata</button><span id="metadata-status" role="status"></span></form></details><label for="page-select">Extracted page</label><select id="page-select"></select><pre id="paper-text"></pre></dialog>
+</body></html>
