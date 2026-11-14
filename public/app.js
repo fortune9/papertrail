@@ -1,6 +1,9 @@
 import { appendHighlighted } from './highlight.js';
 const $ = id => document.getElementById(id);
 const el = (tag, text, cls) => { const node = document.createElement(tag); if (text != null) node.textContent = text; if (cls) node.className = cls; return node; };
+const desktop=window.papertrailDesktop;
+if(desktop){try{const preferences=await desktop.getPreferences();if(preferences.backend)localStorage.setItem('papertrail.assistantBackend',preferences.backend);if(preferences.searchOptions)localStorage.setItem('papertrail.searchOptions',JSON.stringify(preferences.searchOptions));}catch{}}
+const saveDesktopPreferences=()=>desktop?.savePreferences({backend:$('assistant-backend').value,searchOptions:getOptions()}).catch(error=>notify(error.message));
 let query = '', offset = 0, sequence = 0, wasRunning = false, aiAbort;
 let selectedPaper,selectedPaperTitle;
 let assistantStatus,backendInitialized=false;
@@ -9,11 +12,13 @@ function updateAssistantControls(){
   const backend=$('assistant-backend').value;
   const selected=assistantStatus?.aiBackends?.find(item=>item.id===backend);
   $('ai-status').textContent=selected?.message || 'Checking assistant connection…';
+  if(desktop && !selected?.configured)$('ai-status').textContent=backend==='codex'?'Sign in with ChatGPT to enable the research companion.':'Open Settings to configure an API provider or Ollama.';
+  $('desktop-sign-in').hidden=!desktop || backend!=='codex';
   $('ask').disabled=!selected?.configured || !!aiAbort;
   $('assistant-backend').disabled=!!aiAbort;
   $('assistant-footer').textContent=backend==='codex'?'Search stays offline. When you ask, excerpts go through local Codex to OpenAI using your ChatGPT sign-in.':'Your search works without AI. When enabled, relevant excerpts go to your configured provider.';
 }
-$('assistant-backend').onchange=()=>{try{localStorage.setItem('papertrail.assistantBackend',$('assistant-backend').value);}catch{}$('answer').textContent='';$('sources').replaceChildren();updateAssistantControls();};
+$('assistant-backend').onchange=()=>{try{localStorage.setItem('papertrail.assistantBackend',$('assistant-backend').value);}catch{}saveDesktopPreferences();$('answer').textContent='';$('sources').replaceChildren();updateAssistantControls();};
 $('check-ai').onclick=async()=>{const button=$('check-ai');button.disabled=true;try{await status(true);}catch(e){notify(e.message);}finally{button.disabled=false;}};
 const getOptions=()=>({caseInsensitive:$('case-insensitive').checked,fuzzy:$('fuzzy').checked,fields:[...$('search-fields').querySelectorAll('input:checked')].map(input=>input.value)});
 function optionHint(){const o=getOptions();$('search-hint').textContent=!o.fields.length?'Select at least one search field.':`${o.fuzzy?'Fuzzy: one spelling edit for words of 5+ characters':'Whole words'} · ${o.caseInsensitive?'Case insensitive':'Case sensitive'} · Any term in selected fields. Abstracts/authors are detected; review in paper details.`;}
@@ -25,7 +30,7 @@ async function api(url, data) {
 }
 function notify(message) { $('notification').textContent=message; $('notification').hidden=!message; }
 const pdfUrl = (id,page=1) => `/api/papers/${id}/file#page=${page}`;
-function folderDialog() { $('import-dialog').showModal(); $('folder').focus(); }
+async function folderDialog() {try{if(desktop){const folder=await desktop.chooseFolder();if(!folder)return;$('folder').value=folder;}$('import-dialog').showModal();$('folder').focus();}catch(error){notify(error.message);}}
 $('add-folder').onclick=folderDialog;
 $('close-import').onclick=()=>$('import-dialog').close();
 $('close-paper').onclick=()=>$('paper-dialog').close();
@@ -71,7 +76,7 @@ async function search(append=false) {
   }catch(e){notify(e.message);}
 }
 let debounce;
-for(const input of document.querySelectorAll('.search-options input'))input.onchange=()=>{clearTimeout(debounce);query=$('search').value.trim();optionHint();try{localStorage.setItem('papertrail.searchOptions',JSON.stringify(getOptions()));}catch{}search();};
+for(const input of document.querySelectorAll('.search-options input'))input.onchange=()=>{clearTimeout(debounce);query=$('search').value.trim();optionHint();try{localStorage.setItem('papertrail.searchOptions',JSON.stringify(getOptions()));}catch{}saveDesktopPreferences();search();};
 $('search').oninput=()=>{clearTimeout(debounce);debounce=setTimeout(()=>{query=$('search').value.trim();search();},220);};
 $('search-button').onclick=()=>{clearTimeout(debounce);query=$('search').value.trim();search();};
 $('search').onkeydown=e=>{if(e.key==='Enter')$('search-button').click();};
@@ -104,5 +109,27 @@ $('ask').onclick=async()=>{
   finally{aiAbort=null;$('stop-ai').hidden=true;updateAssistantControls();status().catch(e=>notify(e.message));}
 };
 $('stop-ai').onclick=()=>aiAbort?.abort();
+let signInTimer;
+async function renderSignIn(){
+  const state=await desktop.signInStatus();$('sign-in-message').textContent=state.message;
+  $('sign-in-link').hidden=!state.url;if(state.url)$('sign-in-link').href=state.url;
+  $('sign-in-link').onclick=event=>{event.preventDefault();desktop.openSignInPage().catch(error=>notify(error.message));};
+  $('cancel-sign-in').hidden=!state.running;
+  if(!state.running){clearInterval(signInTimer);await status(true);}
+}
+async function signIn(){try{await desktop.startSignIn();$('sign-in-dialog').showModal();await renderSignIn();clearInterval(signInTimer);signInTimer=setInterval(()=>renderSignIn().catch(error=>notify(error.message)),1000);}catch(error){notify(error.message);}}
+async function showSettings(){
+  try{const settings=await desktop.getSettings();$('provider-model').value=settings.model;$('provider-url').value=settings.baseUrl;$('provider-api').value=settings.api;$('provider-key').value='';$('provider-key').placeholder=settings.hasApiKey?'A key is already set; leave blank to keep it':'Optional for a local provider';$('remember-key').checked=settings.rememberKey && settings.secureStorageAvailable;$('remember-key').disabled=!settings.secureStorageAvailable;$('clear-key').checked=false;$('settings-storage').textContent=settings.dataDirectory;$('settings-note').textContent=settings.warning || (settings.secureStorageAvailable?'Keys can be remembered using your desktop keyring.':'Desktop keyring unavailable. API keys can be used for this session only.');$('settings-message').textContent='';$('settings-dialog').showModal();}catch(error){notify(error.message);}
+}
+if(desktop){
+  $('desktop-settings').hidden=false;$('desktop-settings').onclick=showSettings;
+  $('desktop-sign-in').onclick=signIn;
+  $('cancel-sign-in').onclick=async()=>{await desktop.cancelSignIn();await renderSignIn();};
+  $('close-sign-in').onclick=()=>{$('sign-in-dialog').close();};
+  $('close-settings').onclick=()=>{$('provider-key').value='';$('settings-dialog').close();};
+  $('settings-form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{await desktop.saveSettings({model:$('provider-model').value,baseUrl:$('provider-url').value,api:$('provider-api').value,apiKey:$('provider-key').value,rememberKey:$('remember-key').checked,clearApiKey:$('clear-key').checked});$('provider-key').value='';$('settings-message').textContent='Settings saved.';await status(true);}catch(error){$('settings-message').textContent=error.message;}finally{button.disabled=false;}};
+  $('import-library').onclick=async()=>{try{const result=await desktop.importLibrary();if(result)$('settings-message').textContent=`Imported ${result.papers} papers. Restarting Papertrail…`;}catch(error){$('settings-message').textContent=error.message;}};
+  desktop.onCommand(command=>{if(command==='choose-folder')folderDialog();if(command==='settings')showSettings();});
+}
 await Promise.all([search(),status().catch(e=>notify(e.message))]);
 setInterval(()=>status().catch(e=>notify(e.message)),1500);

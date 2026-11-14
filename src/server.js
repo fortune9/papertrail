@@ -13,17 +13,19 @@ async function body(req) {
   for await (const chunk of req) { result += chunk; if (result.length > 65536) throw new Error('Request too large.'); }
   return JSON.parse(result || '{}');
 }
-export function createHandler(library, assistant, port = 3210) {
+export function createHandler(library, assistant, port = 3210, {token} = {}) {
 return async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; frame-src 'self'; object-src 'none'; frame-ancestors 'none'");
   try {
-    const allowedHosts = [`127.0.0.1:${port}`, `localhost:${port}`];
+    const listenPort=typeof port==='function'?port():port;
+    const allowedHosts = [`127.0.0.1:${listenPort}`, `localhost:${listenPort}`];
+    if(token && req.headers['x-papertrail-token']!==token)return json(res,403,{error:'Desktop session required.'});
     if (!allowedHosts.includes(req.headers.host)) return json(res,403,{error:'Local access only.'});
     if (req.headers.origin && !allowedHosts.some(h => req.headers.origin === `http://${h}`)) return json(res,403,{error:'Cross-origin access denied.'});
-    const url = new URL(req.url, `http://127.0.0.1:${port}`);
+    const url = new URL(req.url, `http://127.0.0.1:${listenPort}`);
     const route = url.pathname;
     if (req.method === 'GET' && route === '/api/status') return json(res,200,{...library.stats(),
       ...(assistant.getStatus?await assistant.getStatus(url.searchParams.get('refreshAI')==='1'):{ai:assistant.configured})});
@@ -36,6 +38,7 @@ return async (req, res) => {
       return json(res,200,library.search(q,40,offset,options));
     }
     if (req.method === 'POST' && route === '/api/import') {
+      if(assistant.reconfiguring)return json(res,409,{error:'Library maintenance is in progress. Try again shortly.'});
       const { folder } = await body(req);
       if (typeof folder !== 'string' || !folder.trim()) return json(res,400,{error:'Enter a folder path.'});
       return json(res,202,await library.startImport(folder));
@@ -93,6 +96,26 @@ return async (req, res) => {
     else res.end();
   }
 };
+}
+export async function startLocalServer({dataDir,port=0,token,assistant}={}) {
+  const directory=path.resolve(dataDir || path.join(project,'data'));
+  await fs.mkdir(directory,{recursive:true,mode:0o700});
+  const library=new Library(path.join(directory,'library.sqlite'));
+  const service=assistant || new AssistantService(directory);
+  const server=http.createServer(createHandler(library,service,()=>server.address()?.port || port,{token}));
+  try{await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',resolve);});}
+  catch(error){library.db.close();await service.shutdown();throw error;}
+  let closing;
+  return {library,assistant:service,url:`http://127.0.0.1:${server.address().port}`,async close(){
+    if(closing)return closing;
+    closing=(async()=>{
+      if(library.job)library.job.cancelled=true;
+      const stopped=new Promise(resolve=>server.close(resolve));
+      server.closeAllConnections();await service.shutdown();await stopped;
+      while(library.job?.running)await new Promise(resolve=>setTimeout(resolve,50));
+      library.db.close();
+    })();return closing;
+  }};
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 const data = path.resolve(process.env.DATA_DIR || path.join(project, 'data'));

@@ -1,0 +1,15 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { root } from './electron-runtime.mjs';
+const exec=promisify(execFile);
+const pkg=JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8'));
+const file=process.argv[2] || path.join(root,'dist',`papertrail_${pkg.version}_amd64.deb`);
+const {stdout:info}=await exec('dpkg-deb',['--info',file]);
+if(!info.includes('Architecture: amd64') || !info.includes('poppler-utils') || !info.includes('libssl3'))throw new Error('Installer metadata is incomplete.');
+const {stdout:contents}=await exec('dpkg-deb',['--contents',file],{maxBuffer:8*1024*1024});
+for(const name of ['usr/bin/papertrail','usr/share/applications/papertrail.desktop','resources/app/desktop/main.cjs','native/openworker/openworker-harness','native/codex/bin/codex'])if(!contents.includes(name))throw new Error('Missing packaged file: '+name);
+if(/\/\.env(?:\s|$)|\/library\.sqlite|\/\.git\//m.test(contents))throw new Error('Installer contains private workspace state.');
+if(!contents.split('\n').some(line=>/^\S*s\S*\s+root\/root/.test(line) && line.includes('chrome-sandbox')))throw new Error('Chromium sandbox ownership/mode is not packaged correctly.');
+console.log('Installer metadata, runtime paths, sandbox helper and private-file exclusion verified.');

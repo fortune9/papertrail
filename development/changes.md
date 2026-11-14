@@ -1,5 +1,13 @@
 # Implementation change record
 
+## Linux desktop preview and `.deb` packaging — 2026-11-14
+
+Added an Electron desktop shell on `feature/linux-desktop`, reusing the library, HTTP handler and both assistant adapters. The renderer gets native folder selection, Settings, browser-based ChatGPT sign-in and existing-library import through a narrow main-frame-validated bridge. The private server uses an ephemeral loopback port and per-launch request token. User data/preferences and a separate Codex home live outside the install directory. API keys use asynchronous OS-backed encryption when remembered; session-only keys remain available. Provider changes create distinct immutable OpenWorker identities without changing browser defaults.
+
+The Linux x64 builder pins/checksums Electron 45.3.2, packages the SDKs and matching native helpers, and emits a `.deb` with a desktop launcher and system dependencies including Poppler and OpenSSL. It preserves Chromium sandboxing and includes third-party notices. Database import snapshots WAL content and preserves its source. No public release/upload or system-wide installation was performed. The source checkout's Git metadata was read-only, so implementation is isolated in a local clone and supplied as a branch bundle.
+
+The regression suite contains 23 tests, including six desktop checks. A sandboxed GUI launch and loopback server test were attempted but blocked by the execution environment. Packaged component smoke and archive checks are separate from graphical release qualification. Native Windows/macOS installers, arm64, signing and automatic updates remain future work.
+
 ## Optional local Codex SDK backend — 2026-11-13
 
 Added a backend selector with OpenWorker/API/Ollama retained as the default and local Codex as an independent option. The Codex adapter pins SDK/CLI 0.169.0, checks the user's existing ChatGPT login, excludes API credentials from its environment, and enforces ChatGPT-only authentication. It uses the same retrieved excerpts and source links, fresh read-only threads, streamed answer replacements, cancellation, an answer timeout and explicit terminal status checks. Provider selection is remembered in the browser. Existing OpenWorker code, SDK version and immutable agent identity are unchanged; no database migration is needed.

@@ -16,6 +16,8 @@ The pinned SDK is `@openworkerai/harness-sdk@0.1.0-beta.4`, whose optional depen
 
 The provider is registered as `PaperProvider-v1`. Configuration comes from `AI_MODEL`, `AI_BASE_URL`, `AI_API` and `OPENAI_API_KEY`. The default remote endpoint uses OpenAI Responses; a custom base URL defaults to Chat Completions. Credentials are read by Node and supplied through memory-only provider configuration. They are not sent to browser code.
 
+The class also accepts injected environment, executable and identity options for [desktop packaging](desktop.md). The desktop uses explicit bundled runtime paths and main-process settings, with distinct provider/agent names hashed from model/API/endpoint. Keys are supplied as memory-only credential values. Changing desktop settings stops the prior engine and creates a new one; browser defaults and existing durable identities are preserved.
+
 The immutable agent `paper-reader-v1` is registered once and reused. It has no tools, planning, optional memory or scheduling. Its instructions require using supplied evidence, citing pages, acknowledging insufficient evidence, and treating paper content as untrusted data. Changing immutable agent definition fields requires a new agent name.
 
 Each question creates a fresh session; the UI does not implement follow-up conversation history. Sessions remain durably stored by OpenWorker, so disabling the agent's optional memory does not erase question/excerpt history.

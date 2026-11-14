@@ -1,0 +1,40 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createRequire } from 'node:module';
+import { resolveRuntimeExecutable } from '@openworkerai/harness-sdk';
+import { electronRuntime,root } from './electron-runtime.mjs';
+const exec=promisify(execFile),require=createRequire(import.meta.url);
+const pkg=JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8'));
+const electron=await electronRuntime();
+const dist=path.join(root,'dist'),stage=path.join(dist,'linux-root');
+await fs.mkdir(dist,{recursive:true});await fs.rm(stage,{recursive:true,force:true});
+const install=path.join(stage,'opt','papertrail');await fs.mkdir(path.dirname(install),{recursive:true});
+console.log('Staging Electron and application files…');
+await fs.cp(electron,install,{recursive:true});
+await fs.rename(path.join(install,'electron'),path.join(install,'papertrail'));
+const appRoot=path.join(install,'resources','app');await fs.mkdir(appRoot,{recursive:true});
+for(const name of ['src','public','desktop','development','package.json','LICENSE','README.md'])await fs.cp(path.join(root,name),path.join(appRoot,name),{recursive:true});
+for(const name of ['@openworkerai/harness-sdk','@openai/codex-sdk','@openai/codex'])await fs.cp(path.join(root,'node_modules',name),path.join(appRoot,'node_modules',name),{recursive:true});
+const native=path.join(install,'resources','native');await fs.mkdir(path.join(native,'openworker'),{recursive:true});
+await fs.copyFile(resolveRuntimeExecutable(),path.join(native,'openworker','openworker-harness'));await fs.chmod(path.join(native,'openworker','openworker-harness'),0o755);
+const codex=path.join(path.dirname(require.resolve('@openai/codex-linux-x64/package.json')),'vendor','x86_64-unknown-linux-musl');
+await fs.cp(codex,path.join(native,'codex'),{recursive:true});
+await fs.chmod(path.join(native,'codex','bin','codex'),0o755);
+// The installed helper must be root-owned and setuid on systems that require it.
+// dpkg-deb --root-owner-group records ownership without changing the build host.
+await fs.chmod(path.join(install,'chrome-sandbox'),0o4755);
+const bin=path.join(stage,'usr','bin'),applications=path.join(stage,'usr','share','applications'),icons=path.join(stage,'usr','share','icons','hicolor','scalable','apps');
+await Promise.all([bin,applications,icons,path.join(stage,'DEBIAN')].map(dir=>fs.mkdir(dir,{recursive:true})));
+await fs.writeFile(path.join(bin,'papertrail'),'#!/bin/sh\nexec /opt/papertrail/papertrail "$@"\n',{mode:0o755});
+await fs.writeFile(path.join(applications,'papertrail.desktop'),'[Desktop Entry]\nType=Application\nName=Papertrail\nComment=Search your local research papers\nExec=papertrail\nIcon=papertrail\nTerminal=false\nCategories=Office;Education;Science;\nStartupWMClass=Papertrail\n');
+await fs.copyFile(path.join(root,'desktop','icon.svg'),path.join(icons,'papertrail.svg'));
+await fs.writeFile(path.join(install,'THIRD_PARTY_NOTICES.txt'),`Papertrail ${pkg.version}\n\nElectron 45.3.2: see LICENSE and LICENSES.chromium.html in this directory.\nOpenWorker SDK/runtime: MIT, see resources/app/desktop/licenses/OpenWorker-MIT.txt.\nCodex SDK/runtime: Apache-2.0, see resources/app/desktop/licenses/Codex-Apache-2.0.txt and resources/native/codex notices.\nPoppler is a distribution-managed dependency, not redistributed inside this package.\nIts license and source information are provided by the operating system's poppler-utils package.\nSource: https://github.com/fortune9/papertrail\n`);
+async function size(dir){let total=0;for(const item of await fs.readdir(dir,{withFileTypes:true})){const f=path.join(dir,item.name);total+=item.isDirectory()?await size(f):(await fs.lstat(f)).size;}return total;}
+const dependencies='poppler-utils, xdg-utils, libc6 (>= 2.35), libssl3 | libssl3t64, libgcc-s1, libstdc++6, libgtk-3-0 | libgtk-3-0t64, libnss3, libasound2 | libasound2t64, libgbm1, libxss1, libatk-bridge2.0-0 | libatk-bridge2.0-0t64, libatk1.0-0 | libatk1.0-0t64, libcups2 | libcups2t64, libdbus-1-3, libx11-6, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxrandr2, libpango-1.0-0, libcairo2, libdrm2, libxkbcommon0, libatspi2.0-0 | libatspi2.0-0t64';
+await fs.writeFile(path.join(stage,'DEBIAN','control'),`Package: papertrail\nVersion: ${pkg.version}\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Papertrail contributors\nInstalled-Size: ${Math.ceil(await size(install)/1024)}\nDepends: ${dependencies}\nHomepage: https://github.com/fortune9/papertrail\nDescription: Local research paper library\n Recursively index text-based PDFs and search their pages offline.\n Includes optional ChatGPT/Codex and API/local-model assistants.\n`);
+const output=path.join(dist,`papertrail_${pkg.version}_amd64.deb`);
+console.log('Building Linux x64 .deb installer…');
+await exec('dpkg-deb',['--build','--root-owner-group','-Zxz','-z6',stage,output],{timeout:300000,maxBuffer:1024*1024});
+console.log(output);

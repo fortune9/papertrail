@@ -1,6 +1,6 @@
 {
   "name": "papertrail-local",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,10 +10,15 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "test": "node --test --test-isolation=none",
     "codex:login": "codex login",
-    "codex:status": "codex login status"
+    "codex:status": "codex login status",
+    "desktop": "node scripts/desktop-dev.mjs",
+    "build:linux": "node scripts/build-linux.mjs",
+    "check:package": "node scripts/check-package.mjs"
   },
   "dependencies": {
     "@openworkerai/harness-sdk": "0.1.0-beta.4",
     "@openai/codex-sdk": "0.169.0"
-  }
+  },
+  "productName": "Papertrail",
+  "main": "desktop/main.cjs"
 }

@@ -12,6 +12,8 @@ The OpenWorker engine and its immutable agent identity are unchanged. The Codex 
 
 Login happens in the terminal with `npm run codex:login` (or a custom executable's `login`). Papertrail never initiates browser login, reads an auth file, copies credentials, or exposes tokens through the API. The existing Codex home and supported OS credential store remain owned by Codex.
 
+That paragraph describes the source/browser version. The [desktop app](desktop.md#chatgpt-sign-in) instead owns a dedicated Codex home and starts graphical sign-in through Codex's app-server authentication protocol. The same answer adapter and ChatGPT-only rules still apply; no auth token is handled by the renderer or copied from the user's terminal login.
+
 `refreshStatus()` executes `codex login status` with a five-second timeout and 16 KiB output cap. It reports a configured backend only if the command succeeds and identifies ChatGPT authentication. API-key-only authentication is rejected. Results are cached for 30 seconds; concurrent checks share one promise. **Check connection** forces a refresh. A configured flag means login was detected, not that an inference call succeeded.
 
 Only an allowlist of environment variables reaches the CLI: paths/home, locale, temporary storage, Codex/XDG directories, proxy settings and certificate configuration. OpenWorker's `OPENAI_API_KEY` and other API credentials are not forwarded. Per-run configuration explicitly selects OpenAI and `forced_login_method='chatgpt'` to prevent an accidental switch to API-key billing. No API key or base URL is supplied to the SDK.

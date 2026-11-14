@@ -1,6 +1,6 @@
 # System architecture
 
-Papertrail is a single-user local web app. A Node.js process serves static browser assets, an HTTP API, and a SQLite database. Poppler extracts PDF text in a child process. The optional assistant selects either managed OpenWorker sessions (API/Ollama, the default) or a local Codex SDK/CLI using ChatGPT sign-in.
+Papertrail has a single-user browser version and a Linux desktop preview sharing the same library/API modules. A Node.js process (Electron main in the desktop app) serves the interface, HTTP API and SQLite database. Poppler extracts PDF text in a child process. The optional assistant selects managed OpenWorker sessions or a local Codex SDK/CLI using ChatGPT sign-in. The browser defaults to OpenWorker; the desktop defaults to Codex and provides graphical setup.
 
 ```mermaid
 flowchart LR
@@ -35,12 +35,16 @@ flowchart LR
 | Regression suite | [test/library.test.js](../../test/library.test.js) | Generated PDFs, library integration, request handlers, assistant fixtures, migrations |
 | Highlight regression suite | [test/highlight.test.js](../../test/highlight.test.js) | Matching semantics, Unicode offsets, snippet boundaries and safe DOM rendering contract |
 | Codex regression suite | [test/codex-assistant.test.js](../../test/codex-assistant.test.js) | Actual SDK subprocess fixtures, authentication rules and backend routing |
+| Desktop shell | [desktop/main.cjs](../../desktop/main.cjs), [desktop/preload.cjs](../../desktop/preload.cjs) | Window lifecycle, native controls and a narrow isolated IPC bridge |
+| Desktop regression suite | [test/desktop.test.js](../../test/desktop.test.js) | Settings/keyring contract, structured login, preferences, database snapshots and trust boundaries |
 
 ## Lifetimes and storage
 
 `npm start` loads `.env` if present, resolves the data directory, opens `library.sqlite`, runs any required schema/index migration, and binds to `127.0.0.1`. The default port is 3210. There is no frontend build step or browser framework.
 
 Original PDFs stay in their folders. SQLite holds metadata, extracted page text, and a derived search index. Import progress is an in-memory object and disappears on restart; completed paper transactions persist. There is one import job and at most one assistant answer at a time. SQL executes synchronously in Node; PDF extraction is asynchronous and sequential across files.
+
+The [desktop app](desktop.md) starts that server privately on an ephemeral port, with a per-launch request token injected by its Electron session. Its data is in Electron's user-data directory rather than the source checkout. It owns an independent Codex login home, persistent preferences and encrypted/session-only provider settings.
 
 OpenWorker starts lazily on the first OpenWorker question. Its durable sessions are separate from SQLite and live under `data/harness/`. Codex login status is checked through the CLI, cached for 30 seconds, and refreshed explicitly on demand. Each Codex question starts a fresh SDK thread in a temporary working directory; Codex itself may retain session history in its own home. The app cancels imports and both engines during shutdown and gives cleanup eight seconds before forced exit.
 

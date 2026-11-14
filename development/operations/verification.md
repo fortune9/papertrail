@@ -2,7 +2,7 @@
 
 ## Local execution
 
-The root [README](../../README.md#run-locally) now starts with installing Git and cloning the public repository, then covers Node 24, Poppler, dependency installation, the first launch and adding folders. It includes Ubuntu/Debian, Windows via Ubuntu/WSL and macOS paths, links to official installer documentation, and command-version checks. Fresh OS installation and macOS/Windows runtime behavior have not been exercised here. With tools installed, run `npm ci` and `npm start` from the cloned project and visit `http://127.0.0.1:3210`.
+The root [README](../../README.md#run-locally-from-source) covers installing Git and cloning, Node 24, Poppler, dependencies, first launch and adding folders for the source/browser version. Its separate Linux desktop section covers installing the provided `.deb` and graphical setup. Fresh OS installation and macOS/Windows runtime behavior have not been exercised here. With source tools installed, run `npm ci` and `npm start` from the cloned project and visit `http://127.0.0.1:3210`.
 
 | Variable | Meaning |
 | --- | --- |
@@ -37,6 +37,9 @@ Run `npm test`. The suite uses Node's test runner with `--test-isolation=none`, 
 | PDF titles and version 2 upgrade | Misleading filenames ignored, verified metadata, stale-metadata rejection, page-layout fallback, multiline/entity handling, recurring header rejection, unreadable-title fallback, title-only rescans preserving page rows/corrections, saved title validation and persistence |
 | Codex SDK | Actual pinned SDK driving a deterministic POSIX CLI subprocess; stdin/source bounds, JSONL streaming, completion/failure/early-end, unexpected tool cancellation, user abort, shutdown, timeout, repeat questions, scratch cleanup and credential filtering |
 | Backend selection | OpenWorker retained as default, explicit Codex route, status caching/refresh, ChatGPT-only authentication, invalid/missing/busy selections, original OpenWorker control fixtures |
+| Desktop settings and state | Validated provider URLs, encrypted/session-only key contract, no public key values, lazy keyring initialization, persistent preferences and serialized writes |
+| Desktop login and transport | Structured Codex authentication handshake/completion/cancellation, chunked responses, authorization URL allowlist, main-frame IPC checks and per-launch HTTP token/port checks |
+| Desktop library import | Read-only SQLite source, committed WAL snapshot, preserved paper IDs/text and invalid/self-import rejection |
 
 These are integration and deterministic control-flow checks. They do not prove visual quality in a browser or live model answer accuracy. A passing fixture does not establish a working remote provider.
 
@@ -88,3 +91,13 @@ The execution environment disallows listening on local sockets, so browser previ
 | Codex reports read-only state | Run outside the restricted session with a writable Codex home; sign in through Codex there if necessary. Papertrail does not move auth files. |
 | Codex run fails after successful login check | Check account limits, model availability, connectivity and local CLI/SDK compatibility. Login status alone is not a model-health test. |
 | Library missing after moving files | Rescan their new folder; originals are referenced by absolute paths. |
+
+## Linux desktop preview
+
+The desktop branch adds six tests to the existing suite (23 total). These exercise desktop service boundaries without creating real GUI windows or starting a live sign-in. The current Codex binary's generated protocol schema was checked for the ChatGPT login result shape used by the bridge.
+
+Electron 45.3.2's Linux x64 archive was checked against the pinned upstream SHA-256. Its embedded runtime reports Node 24.22.2 and exposes `node:sqlite`. The `.deb` archive is checked for launcher/native runtime paths, declared Poppler/OpenSSL/desktop dependencies, the Chromium sandbox helper's root ownership/setuid mode and exclusion of private source state.
+
+A normal GUI launch was attempted with the sandbox enabled. This environment rejected Chromium sandbox initialization with `Operation not permitted`; a separate private-server check also returned `EPERM` for loopback listening. Neither restriction was bypassed. These failures prevent a graphical installation/dialog/login/PDF-viewer qualification here. The installer remains a preview pending the normal-desktop steps in [Linux release qualification](linux-release.md#qualification-before-public-release).
+
+The [packaged smoke check](linux-release.md#automated-package-check) uses the extracted installer and Electron's own Node runtime to test SQLite, real bundled executables and PDF extraction/search, without global Node/Codex or a model request. Its results must be reported separately from GUI verification.

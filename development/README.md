@@ -10,12 +10,14 @@ development/
 │   ├── indexing.md                   Folder discovery and PDF extraction
 │   ├── search.md                     Token matching, ranking and migration
 │   ├── assistant.md                  OpenWorker lifecycle and shared retrieval
-│   └── codex.md                      Local Codex SDK backend and authentication
+│   ├── codex.md                      Local Codex SDK backend and authentication
+│   └── desktop.md                    Electron shell, storage, IPC and GUI sign-in
 ├── reference/
 │   ├── database.md                   Tables, relationships and versions
 │   └── http-and-ui.md                Routes and browser behavior
 ├── operations/
-│   └── verification.md               Running, testing and troubleshooting
+│   ├── verification.md               Running, testing and troubleshooting
+│   └── linux-release.md              Building/qualifying the Linux .deb
 ├── maintenance.md                    How to keep these documents current
 └── changes.md                        Behavior changes and supporting evidence
 ```
@@ -30,6 +32,8 @@ development/
 | What is in the database? | [Database reference](reference/database.md) |
 | What does the AI receive? | [Assistant implementation](architecture/assistant.md) |
 | How does ChatGPT sign-in work with local Codex? | [Codex backend](architecture/codex.md) |
+| How does the installable desktop app work? | [Desktop architecture](architecture/desktop.md) |
+| How do I build and verify its Linux installer? | [Linux release guide](operations/linux-release.md) |
 | How do the browser and server communicate? | [HTTP and UI reference](reference/http-and-ui.md) |
 | What was tested, and how can I reproduce it? | [Verification](operations/verification.md) |
 

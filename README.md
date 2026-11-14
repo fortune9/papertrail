@@ -2,7 +2,23 @@
 
 A local research paper library. Recursively import text-based PDFs, store extracted pages in SQLite, and search offline with ranked passages and links to the matching PDF page. The optional assistant uses the OpenWorker Harness SDK to answer questions from retrieved excerpts.
 
-## Run locally
+## Install the desktop app — Linux preview
+
+The first desktop installer targets **Ubuntu/Debian Linux x64** (Ubuntu 22.04+ / Debian 12+ with a graphical desktop). Windows and macOS installers are not implemented yet. This is a preview build: packaged components are checked, but a normal desktop installation and complete graphical sign-in still need verification outside the restricted development session.
+
+1. Download the provided `papertrail_1.1.0_amd64.deb` installer and open it with your system's graphical package installer.
+2. Choose **Install**. It installs Electron, Codex and OpenWorker with Papertrail and asks the package manager to install Poppler and desktop libraries. An internet connection may be needed to obtain missing system dependencies. Git, npm and a separate Node/Codex installation are not needed by end users.
+3. Open **Papertrail** from the applications menu.
+4. Click **Add a folder**, choose your PDF directory and confirm **Index folder**.
+5. To enable AI, select **Local Codex (ChatGPT)** and click **Sign in with ChatGPT**. Finish in your browser. The app checks the connection when sign-in finishes; no terminal or API key is needed for this route.
+
+**Settings** provides API/Ollama configuration and **Import an existing library**. API keys can be remembered with the desktop keyring; if secure storage is unavailable, leave Remember key unchecked to use a key for the current session only. The installed app has its own Codex sign-in, separate from an existing terminal login.
+
+Desktop data is stored in the operating system's application-data directory (normally `~/.config/Papertrail` on Linux), shown in Settings. To bring an earlier web library across, select its `data/library.sqlite` while the desktop library is empty. The app snapshots the database, keeps the source untouched and restarts. Original PDFs must remain at their recorded paths. App updates preserve this user-data directory; uninstalling the program does not erase it.
+
+There is no automatic updater in this preview. Install a newer `.deb` when supplied. No public binary release has been published by this development task; maintainers can produce the installer using [the Linux build guide](development/operations/linux-release.md).
+
+## Run locally from source
 
 This guide starts with a computer that has no development tools installed. You need an internet connection for setup, a terminal, **Git** to download the source, **Node.js 24** (which includes npm), and **Poppler** to read PDF text. Importing and searching then work offline. You do not need Python, Rust, Docker, a database server or an AI account.
 
@@ -118,13 +134,13 @@ Stop the app with **Ctrl+C** in its terminal. To run it again, open a terminal, 
 - Stop an import after its current PDF. Scanned PDFs are marked **Needs OCR**. OCR is intentionally not included.
 - Titles come from PDF metadata verified against opening page text, or from the PDF's page layout/text when metadata is missing or stale. Filenames are not used as titles; undetectable titles appear as **Untitled paper**. Extraction is heuristic, so open **Title, authors and abstract** in paper details to review or correct it. Saved corrections survive rescans. Authors and labeled abstracts/summaries are detected from the first three pages; missing fields do not match field-only searches. Publication years and DOIs are not parsed separately.
 
-The database lives in `data/library.sqlite` and persists across restarts. Back up the `data/` directory while the app is stopped. PDFs remain at their original paths, so keep those files available. Symlinks are skipped. Extraction is limited to 100 MB per PDF, 32 MB of extracted output and 60 seconds per PDF; failures are shown per file. Imports run one at a time and must be restarted after a process restart. Duplicate files at distinct paths appear as separate papers. Search considers up to 4,000 ranked page matches and displays a capped count if reached.
+In the source/browser version, the database lives in `data/library.sqlite`; the desktop app uses its application-data directory. Both persist across restarts. Back up the appropriate directory while the app is stopped. PDFs remain at their original paths, so keep those files available. Symlinks are skipped. Extraction is limited to 100 MB per PDF, 32 MB of extracted output and 60 seconds per PDF; failures are shown per file. Imports run one at a time and must be restarted after a process restart. Duplicate files at distinct paths appear as separate papers. Search considers up to 4,000 ranked page matches and displays a capped count if reached.
 
 ## Optional AI assistant
 
 Offline import and search require neither credentials nor a model. The **Answer with** selector in the companion panel offers two independent options. OpenWorker remains the default; selecting Codex does not change your API/Ollama configuration.
 
-### Local Codex with ChatGPT sign-in
+### Local Codex with ChatGPT sign-in (source/browser version)
 
 Install the branch's dependencies, then sign in using the bundled local Codex CLI:
 
@@ -145,7 +161,7 @@ Codex runs locally but calls OpenAI for inference. Only explicit questions send 
 
 ### OpenWorker with an API provider or Ollama
 
-The original option remains available. If `.env` does not exist yet, create it:
+The original option remains available. The desktop app exposes its model, URL, API format and key in Settings. For the source/browser version, if `.env` does not exist yet, create it:
 
 ```bash
 cp .env.example .env

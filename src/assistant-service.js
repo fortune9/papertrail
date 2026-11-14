@@ -10,7 +10,7 @@ export class AssistantService {
     if(typeof backend!=='string' || !Object.hasOwn(this.engines,backend))throw new Error('Choose a supported assistant: openworker or codex.');
     return this.engines[backend];
   }
-  get busy(){return Object.values(this.engines).some(engine=>engine.busy);}
+  get busy(){return !!this.reconfiguring || Object.values(this.engines).some(engine=>engine.busy);}
   async getStatus(force=false){
     const codex=await this.engines.codex.refreshStatus(force);
     const openworker={id:'openworker',label:'OpenWorker (API / Ollama)',configured:this.engines.openworker.configured,

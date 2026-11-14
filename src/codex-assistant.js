@@ -33,7 +33,7 @@ export class CodexAssistant {
         const {stdout='',stderr=''}=await this.runCommand(this.executable,['login','status'],{env:codexEnvironment(this.env),timeout:5000,maxBuffer:16384,windowsHide:true});
         const chatgpt=/logged in using chatgpt/i.test(stdout+'\n'+stderr);
         this.connection={id:'codex',label:'Local Codex (ChatGPT)',configured:chatgpt,
-          message:chatgpt?'Connected with ChatGPT. Uses your Codex subscription allowance.':'Sign in with ChatGPT: run npm run codex:login in your terminal.'};
+          message:chatgpt?'Connected with ChatGPT. Uses your Codex subscription allowance.':this.env.PAPERTRAIL_DESKTOP?'Use Sign in with ChatGPT in this app.':'Sign in with ChatGPT: run npm run codex:login in your terminal.'};
       }catch(error){
         this.connection={id:'codex',label:'Local Codex (ChatGPT)',configured:false,
           message:error.code==='ENOENT'?'Codex was not found. Run npm ci, or set CODEX_PATH to your local executable.':'Codex is not signed in or could not be checked. Run npm run codex:login, then check the connection.'};
