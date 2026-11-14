@@ -13,6 +13,10 @@ The root [README](../../README.md#run-locally) now starts with installing Git an
 | `OPENAI_API_KEY` | Optional provider secret; required for default OpenAI endpoint |
 | `AI_BASE_URL` | Custom compatible provider endpoint, e.g. local Ollama |
 | `AI_API` | Provider API override; defaults to Responses or Chat Completions according to endpoint configuration |
+| `AI_BACKEND` | Initial assistant selection: `openworker` (default) or `codex`; explicit browser selection takes precedence |
+| `CODEX_PATH` | Local Codex executable; default `codex` found through npm's PATH |
+| `CODEX_MODEL` | Optional exact Codex model ID; otherwise uses Codex's configured/default model |
+| `CODEX_TIMEOUT_MS` | Codex answer timeout; default 180,000, allowed 1,000–600,000 |
 
 `npm start` loads `.env` from the current working directory. Restart after changing code or configuration; there is no development hot-reload server.
 
@@ -31,6 +35,8 @@ Run `npm test`. The suite uses Node's test runner with `--test-isolation=none`, 
 | Version 1 backfill | Stored-text metadata inference with missing original PDFs, original page preservation, metadata-aware FTS and repeat startup |
 | Result highlighting | Whole-word/case/fuzzy spans, multiple terms, selected-field isolation, combining marks and UTF-16 offsets, safe text-node rendering, invalid range handling, full-word snippet boundaries and HTTP highlight payloads/assets |
 | PDF titles and version 2 upgrade | Misleading filenames ignored, verified metadata, stale-metadata rejection, page-layout fallback, multiline/entity handling, recurring header rejection, unreadable-title fallback, title-only rescans preserving page rows/corrections, saved title validation and persistence |
+| Codex SDK | Actual pinned SDK driving a deterministic POSIX CLI subprocess; stdin/source bounds, JSONL streaming, completion/failure/early-end, unexpected tool cancellation, user abort, shutdown, timeout, repeat questions, scratch cleanup and credential filtering |
+| Backend selection | OpenWorker retained as default, explicit Codex route, status caching/refresh, ChatGPT-only authentication, invalid/missing/busy selections, original OpenWorker control fixtures |
 
 These are integration and deterministic control-flow checks. They do not prove visual quality in a browser or live model answer accuracy. A passing fixture does not establish a working remote provider.
 
@@ -52,6 +58,16 @@ After the PDF-title change, all eleven tests pass. All seven initial sample titl
 
 The installed OpenWorker Linux x64 runtime was separately started, configured, used to register an agent and create a session, shut down, and restarted using the same state directory. That check did not send a live model question.
 
+## Codex branch verification
+
+The experimental branch `feature/local-codex-assistant` was developed in an isolated local clone because this execution session cannot write the original checkout's `.git` metadata. The existing main checkout and its database were left untouched. The feature does not change the database schema, OpenWorker version or original agent definition.
+
+The installed Codex CLI and pinned SDK both use version 0.169.0. `codex login status` reported an existing ChatGPT login. A live SDK question used only synthetic study text, but Codex failed before model inference because the session made its local state read-only. This is an environment limitation; authentication detection is not a successful answer test. No credentials were copied and no login was changed.
+
+The suite now contains 17 tests. The Codex transport tests use the real JavaScript SDK and a POSIX shell fixture rather than a mocked SDK. They verify the subprocess contract and control flow without a model or network connection. They do not establish native Codex answer quality. Native Windows fixture execution and browser rendering are untested; the documented Windows path remains WSL.
+
+To finish the live check in a normal terminal: install this branch's dependencies, run `npm run codex:login` if needed, check `npm run codex:status`, start the app, select **Local Codex (ChatGPT)**, click **Check connection**, and ask about a retrieved paper. Confirm a completed cited answer and try Stop. A writable Codex home and account allowance are required.
+
 The execution environment disallows listening on local sockets, so browser preview and full network/live-model end-to-end tests were not available. Run the server in your local terminal for those checks; Linux x64 is the exercised native-runtime platform.
 
 ## Troubleshooting
@@ -68,4 +84,7 @@ The execution environment disallows listening on local sockets, so browser previ
 | PDF needs OCR | This version extracts only an existing text layer. View the original or provide a text-layer PDF. |
 | Import seems stopped after pressing Stop | The active PDF can take up to the extraction timeout to finish; cancellation is checked between files. |
 | AI disabled | Set `AI_MODEL` plus a provider endpoint or key, then restart. |
+| Codex disabled | Run `npm ci` and `npm run codex:login`, choose ChatGPT sign-in, then click **Check connection**. The OpenWorker API key does not configure Codex. |
+| Codex reports read-only state | Run outside the restricted session with a writable Codex home; sign in through Codex there if necessary. Papertrail does not move auth files. |
+| Codex run fails after successful login check | Check account limits, model availability, connectivity and local CLI/SDK compatibility. Login status alone is not a model-health test. |
 | Library missing after moving files | Rescan their new folder; originals are referenced by absolute paths. |

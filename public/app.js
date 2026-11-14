@@ -3,6 +3,18 @@ const $ = id => document.getElementById(id);
 const el = (tag, text, cls) => { const node = document.createElement(tag); if (text != null) node.textContent = text; if (cls) node.className = cls; return node; };
 let query = '', offset = 0, sequence = 0, wasRunning = false, aiAbort;
 let selectedPaper,selectedPaperTitle;
+let assistantStatus,backendInitialized=false;
+try{const saved=localStorage.getItem('papertrail.assistantBackend');if(['openworker','codex'].includes(saved)){$('assistant-backend').value=saved;backendInitialized=true;}}catch{}
+function updateAssistantControls(){
+  const backend=$('assistant-backend').value;
+  const selected=assistantStatus?.aiBackends?.find(item=>item.id===backend);
+  $('ai-status').textContent=selected?.message || 'Checking assistant connection…';
+  $('ask').disabled=!selected?.configured || !!aiAbort;
+  $('assistant-backend').disabled=!!aiAbort;
+  $('assistant-footer').textContent=backend==='codex'?'Search stays offline. When you ask, excerpts go through local Codex to OpenAI using your ChatGPT sign-in.':'Your search works without AI. When enabled, relevant excerpts go to your configured provider.';
+}
+$('assistant-backend').onchange=()=>{try{localStorage.setItem('papertrail.assistantBackend',$('assistant-backend').value);}catch{}$('answer').textContent='';$('sources').replaceChildren();updateAssistantControls();};
+$('check-ai').onclick=async()=>{const button=$('check-ai');button.disabled=true;try{await status(true);}catch(e){notify(e.message);}finally{button.disabled=false;}};
 const getOptions=()=>({caseInsensitive:$('case-insensitive').checked,fuzzy:$('fuzzy').checked,fields:[...$('search-fields').querySelectorAll('input:checked')].map(input=>input.value)});
 function optionHint(){const o=getOptions();$('search-hint').textContent=!o.fields.length?'Select at least one search field.':`${o.fuzzy?'Fuzzy: one spelling edit for words of 5+ characters':'Whole words'} · ${o.caseInsensitive?'Case insensitive':'Case sensitive'} · Any term in selected fields. Abstracts/authors are detected; review in paper details.`;}
 try{const saved=JSON.parse(localStorage.getItem('papertrail.searchOptions'));if(saved){$('case-insensitive').checked=saved.caseInsensitive!==false;$('fuzzy').checked=saved.fuzzy===true;if(Array.isArray(saved.fields))for(const input of $('search-fields').querySelectorAll('input'))input.checked=saved.fields.includes(input.value);}}catch{}
@@ -65,14 +77,15 @@ $('search-button').onclick=()=>{clearTimeout(debounce);query=$('search').value.t
 $('search').onkeydown=e=>{if(e.key==='Enter')$('search-button').click();};
 $('more').onclick=()=>search(true);
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();$('search').focus();}});
-async function status() {
-  const data=await api('/api/status');
+async function status(refreshAI=false) {
+  const data=await api('/api/status'+(refreshAI?'?refreshAI=1':''));
   for(const key of ['total','pages','ready'])$(key).textContent=data[key].toLocaleString();
   $('attention').textContent=data.errors+data.scanned;$('nav-count').textContent=data.total;
   $('roots').replaceChildren(...data.roots.map(root=>{const item=el('div',null,'root-item');item.append(el('div','▱ '+root));const b=el('button','Rescan folder','text-button');b.disabled=!!data.job?.running;b.onclick=async()=>{try{await api('/api/import',{folder:root});await status();}catch(e){notify(e.message);}};item.append(b);return item;}));
   if(!data.roots.length)$('roots').textContent='Your folders will appear here.';
-  $('ai-status').textContent=data.ai?'Ready · Answers use your current search results.':'Optional · Set up a provider in .env to enable.';
-  $('ask').disabled=!data.ai||!!aiAbort;
+  assistantStatus=data;
+  if(!backendInitialized){$('assistant-backend').value=data.aiDefaultBackend || 'openworker';backendInitialized=true;}
+  updateAssistantControls();
   const job=data.job;$('job').hidden=!job;
   if(job){$('job-title').textContent=job.running?(job.cancelled?'Stopping after current PDF…':'Indexing your library…'):job.cancelled?'Import stopped':'Import complete';$('cancel-import').hidden=!job.running||job.cancelled;$('progress').max=Math.max(1,job.discovered);$('progress').value=job.processed;$('job-detail').textContent=`${job.processed} / ${job.discovered} PDFs · ${job.indexed} indexed · ${job.unchanged} unchanged · ${job.failed} errors · ${job.removed} removed${job.current?' · '+job.current:''}`;$('issues').hidden=!job.issues.length;$('issue-list').textContent=job.issues.join('\n');}
   if(wasRunning&&!job?.running)await search();wasRunning=!!job?.running;
@@ -80,14 +93,15 @@ async function status() {
 $('ask').onclick=async()=>{
   const question=$('question').value.trim();if(!question){$('question').focus();return;}
   aiAbort=new AbortController();$('ask').disabled=true;$('stop-ai').hidden=false;$('answer').textContent='Reading relevant passages…';$('sources').replaceChildren();
+  updateAssistantControls();
   try{
-    const res=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,query,options:getOptions()}),signal:aiAbort.signal});
+    const res=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,query,options:getOptions(),backend:$('assistant-backend').value}),signal:aiAbort.signal});
     if(!res.ok)throw new Error((await res.json()).error);
     const reader=res.body.getReader(),decoder=new TextDecoder();let buffer='',terminal=false;
     while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let end;while((end=buffer.indexOf('\n'))>=0){const event=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(event.type==='text'||event.type==='done')$('answer').textContent=event.text;if(event.type==='done')terminal=true;if(event.type==='error')throw new Error(event.error);if(event.type==='sources')$('sources').replaceChildren(...event.sources.map(s=>{const a=el('a',`[Paper ${s.id}, p. ${s.page}] ${s.title}`);a.href=pdfUrl(s.id,s.page);a.target='_blank';a.rel='noopener';return a;}));}}
     if(!terminal)throw new Error('Connection ended before the answer completed.');
   }catch(e){if(e.name==='AbortError')$('answer').append(el('p','Answer stopped.'));else $('answer').append(el('p',e.message));}
-  finally{aiAbort=null;$('stop-ai').hidden=true;status().catch(e=>notify(e.message));}
+  finally{aiAbort=null;$('stop-ai').hidden=true;updateAssistantControls();status().catch(e=>notify(e.message));}
 };
 $('stop-ai').onclick=()=>aiAbort?.abort();
 await Promise.all([search(),status().catch(e=>notify(e.message))]);

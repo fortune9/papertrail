@@ -2,9 +2,11 @@
 
 Implementation: [src/assistant.js](../../src/assistant.js), the `/api/ask` route in [src/server.js](../../src/server.js), and the streamed-response reader in [public/app.js](../../public/app.js).
 
+This page describes the unchanged OpenWorker engine and shared retrieval. The [local Codex backend](codex.md) is an independent selectable alternative. [AssistantService](../../src/assistant-service.js) defaults to OpenWorker, validates backend IDs and coordinates busy state/shutdown. Selecting Codex does not replace or reconfigure the OpenWorker agent.
+
 ## Retrieval before generation
 
-The browser submits a question, the current search query and checkbox options (case-insensitivity, fuzzy spelling and fields). The server uses the query when nonempty, otherwise the question, to call the same [search](search.md) as the library UI with those options. It takes up to six ranked papers, filters those to `ready` status, and loads up to 10,000 characters from each selected matching page. Filtering happens after selecting six candidates, so fewer than six usable sources may remain. Field scope constrains retrieval; model excerpts still use original page text, which may differ from manually corrected metadata.
+The browser submits a question, selected backend, current search query and checkbox options (case-insensitivity, fuzzy spelling and fields). The server uses the query when nonempty, otherwise the question, to call the same [search](search.md) as the library UI with those options. It takes up to six ranked papers, filters those to `ready` status, and loads up to 10,000 characters from each selected matching page. Filtering happens after selecting six candidates, so fewer than six usable sources may remain. Field scope constrains retrieval; model excerpts still use original page text, which may differ from manually corrected metadata. Both backends use this same source selection and browser source list.
 
 There is one excerpt per paper, not full-document context. Citations use `[Paper ID, p. N]`. The server streams a separate source list containing trusted database IDs and page numbers; the browser uses those for PDF links. A question with no retrieved usable text is rejected rather than sent without sources.
 

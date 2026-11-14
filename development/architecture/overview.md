@@ -1,6 +1,6 @@
 # System architecture
 
-Papertrail is a single-user local web app. A Node.js process serves static browser assets, an HTTP API, and a SQLite database. Poppler extracts PDF text in a child process. An optional managed OpenWorker Rust subprocess runs model sessions.
+Papertrail is a single-user local web app. A Node.js process serves static browser assets, an HTTP API, and a SQLite database. Poppler extracts PDF text in a child process. The optional assistant selects either managed OpenWorker sessions (API/Ollama, the default) or a local Codex SDK/CLI using ChatGPT sign-in.
 
 ```mermaid
 flowchart LR
@@ -13,6 +13,8 @@ flowchart LR
     Node -->|Retrieved page excerpts| Assistant[Assistant service]
     Assistant --> Harness[OpenWorker Rust runtime]
     Harness --> Provider[Configured model provider]
+    Assistant --> Codex[Codex SDK and local CLI]
+    Codex --> OpenAI[OpenAI through ChatGPT sign-in]
 ```
 
 ## Source ownership
@@ -25,11 +27,14 @@ flowchart LR
 | Metadata helpers | [src/metadata.js](../../src/metadata.js) | Best-effort author and abstract extraction from opening pages |
 | Title extraction | [src/titles.js](../../src/titles.js) | Verified PDF title metadata, page-layout detection and text fallback |
 | Assistant | [src/assistant.js](../../src/assistant.js) | Provider registration, immutable agent registration, sessions, streaming, cancellation |
+| Backend selection | [src/assistant-service.js](../../src/assistant-service.js) | Defaults, backend status, global busy coordination and shutdown |
+| Codex adapter | [src/codex-assistant.js](../../src/codex-assistant.js) | Local ChatGPT login check, SDK streaming, restrictions, timeout and cancellation |
 | Browser | [public/app.js](../../public/app.js) | Fetching, search debounce, cards, dialogs, progress, streamed answers |
 | Result highlighting | [public/highlight.js](../../public/highlight.js) | Safe text/mark rendering of server-provided title and excerpt ranges |
 | Presentation | [public/index.html](../../public/index.html), [public/style.css](../../public/style.css) | Layout, responsive styling, search explanations |
 | Regression suite | [test/library.test.js](../../test/library.test.js) | Generated PDFs, library integration, request handlers, assistant fixtures, migrations |
 | Highlight regression suite | [test/highlight.test.js](../../test/highlight.test.js) | Matching semantics, Unicode offsets, snippet boundaries and safe DOM rendering contract |
+| Codex regression suite | [test/codex-assistant.test.js](../../test/codex-assistant.test.js) | Actual SDK subprocess fixtures, authentication rules and backend routing |
 
 ## Lifetimes and storage
 
@@ -37,10 +42,10 @@ flowchart LR
 
 Original PDFs stay in their folders. SQLite holds metadata, extracted page text, and a derived search index. Import progress is an in-memory object and disappears on restart; completed paper transactions persist. There is one import job and at most one assistant answer at a time. SQL executes synchronously in Node; PDF extraction is asynchronous and sequential across files.
 
-OpenWorker starts lazily on the first AI request. Its durable sessions are separate from SQLite and live under `data/harness/`. The app cancels imports and AI work during shutdown and gives cleanup eight seconds before forced exit.
+OpenWorker starts lazily on the first OpenWorker question. Its durable sessions are separate from SQLite and live under `data/harness/`. Codex login status is checked through the CLI, cached for 30 seconds, and refreshed explicitly on demand. Each Codex question starts a fresh SDK thread in a temporary working directory; Codex itself may retain session history in its own home. The app cancels imports and both engines during shutdown and gives cleanup eight seconds before forced exit.
 
 ## Trust boundaries
 
 The server checks Host and supplied Origin headers and binds only to loopback. Browser code never receives model credentials. PDF and model text are rendered using DOM text nodes or `textContent`; they are not inserted as executable HTML. The server serves PDFs only through indexed paper IDs and verifies that resolved paths remain within their recorded roots.
 
-The Node process and its application callbacks have the user's filesystem privileges. Real-path checks and skipped symlinks are application-level restrictions, not an operating-system sandbox. OpenWorker runs with `sandbox: 'off'` and no tools for this assistant. This implementation has no multi-user authentication or network deployment configuration.
+The Node process and its application callbacks have the user's filesystem privileges. Real-path checks and skipped symlinks are application-level restrictions, not an operating-system sandbox. OpenWorker runs with `sandbox: 'off'` and no tools for this assistant. The [Codex adapter](codex.md) requests read-only/tool restrictions and passes only an allowlisted environment, with ChatGPT-only authentication and no copied API credentials. Its model inference is remote even though the CLI is local. This implementation has no multi-user authentication or network deployment configuration.

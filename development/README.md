@@ -9,7 +9,8 @@ development/
 │   ├── overview.md                   Processes, components and data flow
 │   ├── indexing.md                   Folder discovery and PDF extraction
 │   ├── search.md                     Token matching, ranking and migration
-│   └── assistant.md                  OpenWorker lifecycle and retrieval
+│   ├── assistant.md                  OpenWorker lifecycle and shared retrieval
+│   └── codex.md                      Local Codex SDK backend and authentication
 ├── reference/
 │   ├── database.md                   Tables, relationships and versions
 │   └── http-and-ui.md                Routes and browser behavior
@@ -28,6 +29,7 @@ development/
 | Why does a paper match my query? | [Search implementation](architecture/search.md) |
 | What is in the database? | [Database reference](reference/database.md) |
 | What does the AI receive? | [Assistant implementation](architecture/assistant.md) |
+| How does ChatGPT sign-in work with local Codex? | [Codex backend](architecture/codex.md) |
 | How do the browser and server communicate? | [HTTP and UI reference](reference/http-and-ui.md) |
 | What was tested, and how can I reproduce it? | [Verification](operations/verification.md) |
 

@@ -1,5 +1,11 @@
 # Implementation change record
 
+## Optional local Codex SDK backend — 2026-11-13
+
+Added a backend selector with OpenWorker/API/Ollama retained as the default and local Codex as an independent option. The Codex adapter pins SDK/CLI 0.169.0, checks the user's existing ChatGPT login, excludes API credentials from its environment, and enforces ChatGPT-only authentication. It uses the same retrieved excerpts and source links, fresh read-only threads, streamed answer replacements, cancellation, an answer timeout and explicit terminal status checks. Provider selection is remembered in the browser. Existing OpenWorker code, SDK version and immutable agent identity are unchanged; no database migration is needed.
+
+Implementation and documentation are isolated on `feature/local-codex-assistant` in a separate local clone because the original Git metadata is read-only in this session. The native CLI login check succeeded; a synthetic live question stopped before inference because Codex state was read-only. The real-SDK subprocess fixtures and existing tests total 17 checks; live model quality, browser rendering and other native platforms remain unverified.
+
 ## PDF-derived titles and first-time setup guide — 2026-11-13
 
 Replaced filename-derived titles with verified embedded PDF title metadata, bounded opening-page layout extraction and a text fallback. Metadata must occur in visible opening-page text; stale document names, common publisher labels and repeated large running banners are filtered. Undetectable titles become **Untitled paper**. Titles can be corrected in paper details and stay corrected across rescans.

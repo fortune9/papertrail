@@ -122,7 +122,30 @@ The database lives in `data/library.sqlite` and persists across restarts. Back u
 
 ## Optional AI assistant
 
-Offline import and search require neither credentials nor a model. To enable the assistant:
+Offline import and search require neither credentials nor a model. The **Answer with** selector in the companion panel offers two independent options. OpenWorker remains the default; selecting Codex does not change your API/Ollama configuration.
+
+### Local Codex with ChatGPT sign-in
+
+Install the branch's dependencies, then sign in using the bundled local Codex CLI:
+
+```bash
+npm ci
+npm run codex:login
+npm run codex:status
+npm start
+```
+
+Complete the browser sign-in using your ChatGPT account. `codex:status` should report **Logged in using ChatGPT**. In Papertrail, select **Local Codex (ChatGPT)**, click **Check connection**, search for a topic and ask a question. If already running, restart the app after installing the new dependencies. An existing ChatGPT login can be reused; no `.env` or OpenAI API key is required for this option. This integration intentionally refuses API-key-only Codex authentication. Account eligibility and Codex usage limits still apply. See [Codex authentication](https://learn.chatgpt.com/docs/auth) and the [official SDK](https://learn.chatgpt.com/docs/codex-sdk).
+
+The pinned `@openai/codex-sdk@0.169.0` controls a local Codex executable. `npm start` finds the matching CLI installed with it. To use a different installed executable, set `CODEX_PATH` to its path in `.env`; use that executable's `login`/`login status` commands with the same Codex home as the server. Authentication remains managed by Codex; Papertrail never copies or displays your login tokens.
+
+Optional Codex settings: `AI_BACKEND=codex` changes the default selector, `CODEX_MODEL` selects an exact model available to your account (otherwise Codex uses its default), and `CODEX_TIMEOUT_MS` sets the answer timeout (1,000–600,000 ms; default 180,000). Browser selection is remembered and takes precedence over the default. After signing in, **Check connection** refreshes the cached login status. A status check confirms sign-in, not a successful model request.
+
+Codex runs locally but calls OpenAI for inference. Only explicit questions send retrieved excerpts to it. Each question uses a fresh thread and a temporary working directory, requests read-only execution with tools/web search disabled, and streams the answer with the same source links and Stop button. Codex may store thread history under its own local home. Keep that home writable; a read-only execution session can allow login checks yet prevent answers.
+
+### OpenWorker with an API provider or Ollama
+
+The original option remains available. If `.env` does not exist yet, create it:
 
 ```bash
 cp .env.example .env
@@ -133,7 +156,7 @@ For OpenAI, set `OPENAI_API_KEY` and `AI_MODEL` to an exact model ID available i
 
 Search with topic keywords, then ask a question in the companion panel. It receives up to six matching papers, with one page excerpt per paper (10,000 characters maximum each). If the search box is empty, the question supplies the search terms. Each question creates an isolated session. Answers stream with a Stop button and links to the source pages. Answers cover retrieved excerpts, not every page in the library, and model-written citations should be checked against those pages.
 
-OpenWorker owns the model loop in its managed Rust subprocess. The pinned SDK is `@openworkerai/harness-sdk@0.1.0-beta.4`; its manifest selects matching native runtime packages at `0.1.0-beta.3`. Keep npm optional dependencies enabled. Credentials stay in the Node process and memory-only provider configuration. Retrieved excerpts are sent to your configured provider only when you ask a question. Harness session history, including excerpts and answers, persists in `data/harness/`. Use a local provider if you want all inference on your device.
+For the OpenWorker option, OpenWorker owns the model loop in its managed Rust subprocess. The pinned SDK is `@openworkerai/harness-sdk@0.1.0-beta.4`; its manifest selects matching native runtime packages at `0.1.0-beta.3`. These versions and the original agent definition are unchanged. Keep npm optional dependencies enabled. Credentials stay in the Node process and memory-only provider configuration. Retrieved excerpts are sent to your configured provider only when you ask a question. Harness session history, including excerpts and answers, persists in `data/harness/`. Use a local provider if you want all inference on your device.
 
 The server binds to loopback only and checks the Host and Origin headers. This is a single-user local app; do not expose it to a network or put it behind a public proxy.
 
@@ -154,3 +177,5 @@ npm test
 Tests exercise recursive extraction, PDF title metadata/layout/text fallbacks, matching page numbers, corrupt and blank PDFs, symlink exclusion, rescans, changed/deleted files, restart persistence, cancellation, local HTTP guards, UI serving, literal/case/fuzzy/field search options, metadata corrections and version-0/version-1/version-2 migration, and assistant streaming/error/cancellation control with deterministic fixtures. These fixtures do not establish live model answer quality.
 
 Extraction was checked against a seven-paper, 150-page sample library, including unchanged rescans and PDF-derived titles. OpenWorker's installed Linux x64 runtime was started, configured, used to register an agent and create a session, shut down, and restarted against the same state directory. The execution sandbox disallows listening on local sockets, so a browser preview and full HTTP/live-model end-to-end run could not be exercised in this session. The first-time operating-system installers above were checked against their linked documentation, not executed on a clean machine here.
+
+The Codex feature adds real-SDK subprocess tests using a deterministic POSIX CLI fixture for answer streaming, terminal failures, cancellation, timeout, restrictions and backend routing. Local Codex 0.169.0 confirmed an existing ChatGPT login. A live synthetic-question attempt stopped before inference because this development session made Codex state read-only. Live answer quality and browser rendering remain unverified; use the steps above in a normal local terminal to complete that check.

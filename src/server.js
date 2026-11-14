@@ -3,7 +3,7 @@ import { promises as fs, createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Library } from './library.js';
-import { Assistant } from './assistant.js';
+import { AssistantService } from './assistant-service.js';
 import { searchOptions } from './search.js';
 
 const project = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -25,7 +25,8 @@ return async (req, res) => {
     if (req.headers.origin && !allowedHosts.some(h => req.headers.origin === `http://${h}`)) return json(res,403,{error:'Cross-origin access denied.'});
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
     const route = url.pathname;
-    if (req.method === 'GET' && route === '/api/status') return json(res,200,{...library.stats(),ai:assistant.configured});
+    if (req.method === 'GET' && route === '/api/status') return json(res,200,{...library.stats(),
+      ...(assistant.getStatus?await assistant.getStatus(url.searchParams.get('refreshAI')==='1'):{ai:assistant.configured})});
     if (req.method === 'GET' && route === '/api/search') {
       const q = (url.searchParams.get('q') || '').slice(0,1000);
       const offset = Math.max(0, Math.min(Number(url.searchParams.get('offset')) || 0, 100000));
@@ -61,9 +62,12 @@ return async (req, res) => {
       createReadStream(real).on('error', () => res.destroy()).pipe(res); return;
     }
     if (req.method === 'POST' && route === '/api/ask') {
-      const { question, query, options } = await body(req);
+      const { question, query, options, backend } = await body(req);
       if (typeof question !== 'string' || !question.trim() || question.length > 2000) return json(res,400,{error:'Enter a question under 2,000 characters.'});
-      if (!assistant.configured) return json(res,400,{error:'Configure the optional AI provider in .env first. See README.'});
+      const engine=assistant.select?assistant.select(backend):assistant;
+      const connection=engine.refreshStatus?await engine.refreshStatus():null;
+      if(res.destroyed)return;
+      if (!engine.configured) return json(res,400,{error:connection?.message || 'Configure the optional AI provider in .env first. See README.'});
       if (assistant.busy) return json(res,409,{error:'Assistant is already answering.'});
       const sources = library.search(typeof query === 'string' && query.trim() ? query : question,6,0,searchOptions(options)).papers.filter(p=>p.status==='ready').map(p=>({ ...p,
         excerpt: library.db.prepare('SELECT text FROM pages WHERE paper_id=? AND number=?').get(p.id,p.match_page || 1)?.text.slice(0,10000) || '' }));
@@ -73,7 +77,7 @@ return async (req, res) => {
       res.writeHead(200,{'Content-Type':'application/x-ndjson','X-Accel-Buffering':'no'});
       const emit = event => { if (!res.destroyed) res.write(JSON.stringify(event)+'\n'); };
       emit({type:'sources',sources:sources.map(({id,title,match_page})=>({id,title,page:match_page || 1}))});
-      try { await assistant.ask(question,sources,emit,abort.signal); }
+      try { await engine.ask(question,sources,emit,abort.signal); }
       catch(e) { emit({type:'error',error:e.message}); }
       res.end(); return;
     }
@@ -94,7 +98,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 const data = path.resolve(process.env.DATA_DIR || path.join(project, 'data'));
 await fs.mkdir(data, { recursive: true, mode: 0o700 });
 const library = new Library(path.join(data, 'library.sqlite'));
-const assistant = new Assistant(data);
+const assistant = new AssistantService(data);
 const port = Number(process.env.PORT || 3210);
 const server = http.createServer(createHandler(library, assistant, port));
 server.on('error', error => { console.error(`Could not start local server: ${error.message}`); process.exitCode = 1; library.db.close(); });
