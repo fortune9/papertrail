@@ -2,7 +2,7 @@ import { appendHighlighted } from './highlight.js';
 const $ = id => document.getElementById(id);
 const el = (tag, text, cls) => { const node = document.createElement(tag); if (text != null) node.textContent = text; if (cls) node.className = cls; return node; };
 let query = '', offset = 0, sequence = 0, wasRunning = false, aiAbort;
-let selectedPaper;
+let selectedPaper,selectedPaperTitle;
 const getOptions=()=>({caseInsensitive:$('case-insensitive').checked,fuzzy:$('fuzzy').checked,fields:[...$('search-fields').querySelectorAll('input:checked')].map(input=>input.value)});
 function optionHint(){const o=getOptions();$('search-hint').textContent=!o.fields.length?'Select at least one search field.':`${o.fuzzy?'Fuzzy: one spelling edit for words of 5+ characters':'Whole words'} · ${o.caseInsensitive?'Case insensitive':'Case sensitive'} · Any term in selected fields. Abstracts/authors are detected; review in paper details.`;}
 try{const saved=JSON.parse(localStorage.getItem('papertrail.searchOptions'));if(saved){$('case-insensitive').checked=saved.caseInsensitive!==false;$('fuzzy').checked=saved.fuzzy===true;if(Array.isArray(saved.fields))for(const input of $('search-fields').querySelectorAll('input'))input.checked=saved.fields.includes(input.value);}}catch{}
@@ -23,6 +23,8 @@ async function showPaper(id,page=1) {
   try {
     const paper=await api(`/api/papers/${id}`);
     selectedPaper=id;$('paper-authors').value=paper.authors || '';$('paper-abstract').value=paper.abstract || '';$('metadata-status').textContent='';
+    selectedPaperTitle=paper.title;$('paper-metadata-title').value=paper.title;
+    $('title-source').textContent=paper.title_source==='legacy'?'Title awaits PDF extraction. Rescan its folder.':`Title source: ${({'pdf-metadata':'PDF metadata verified against page text','pdf-layout':'PDF page layout','pdf-text':'PDF opening text',manual:'your correction',unavailable:'not detected'})[paper.title_source] || 'not detected'}.`;
     $('metadata-note').textContent=paper.metadata_edited?'Saved corrections. Changes remain when rescanning.':'Detected from opening pages; review and correct if needed. Missing fields do not match field-only searches.';
     $('paper-title').textContent=paper.title; $('paper-path').textContent=paper.path;
     $('paper-link').href=pdfUrl(id,page);
@@ -32,11 +34,12 @@ async function showPaper(id,page=1) {
     $('page-select').onchange=display;display();$('paper-dialog').showModal();
   }catch(e){notify(e.message);}
 }
-$('metadata-form').onsubmit=async event=>{event.preventDefault();event.submitter.disabled=true;try{await api(`/api/papers/${selectedPaper}/metadata`,{authors:$('paper-authors').value,abstract:$('paper-abstract').value});$('metadata-status').textContent=' Saved';$('metadata-note').textContent='Saved corrections. Changes remain when rescanning.';await search();}catch(e){$('metadata-status').textContent=e.message;}finally{event.submitter.disabled=false;}};
+$('metadata-form').onsubmit=async event=>{event.preventDefault();event.submitter.disabled=true;try{const title=$('paper-metadata-title').value;const paper=await api(`/api/papers/${selectedPaper}/metadata`,{authors:$('paper-authors').value,abstract:$('paper-abstract').value,...(title!==selectedPaperTitle?{title}:{})});selectedPaperTitle=paper.title;$('paper-title').textContent=paper.title;if(paper.title_source==='manual')$('title-source').textContent='Title source: your correction.';$('metadata-status').textContent=' Saved';$('metadata-note').textContent='Saved corrections. Changes remain when rescanning.';await search();}catch(e){$('metadata-status').textContent=e.message;}finally{event.submitter.disabled=false;}};
 function card(paper) {
   const card=el('article',null,'paper-card');
   const meta=el('div',null,'paper-meta');meta.append(el('span','PDF','pdf-label'),el('span',`${paper.pages} pages`),el('span',paper.status==='ready'?'Text indexed':paper.status==='no-text'?'Needs OCR':'Import error'));card.append(meta);
   if(paper.matched_fields?.length)meta.append(el('span','Match: '+paper.matched_fields.map(f=>f==='text'?'full text':f).join(', ')));
+  if(paper.title_source==='legacy')meta.append(el('span','Title needs rescan'));
   const h=el('h3'),button=el('button');appendHighlighted(button,paper.title,paper.highlights?.title);button.onclick=()=>showPaper(paper.id,paper.match_page||1);h.append(button);card.append(h);
   const passage=el('p');appendHighlighted(passage,paper.snippet || paper.error || (paper.status==='no-text'?'No extractable text found. You can still open the original PDF.':'Open this paper to read the extracted pages or search for a passage.'),paper.highlights?.snippet);card.append(passage);
   const bottom=el('div',null,'paper-bottom'),location=el('span',paper.path);location.title=paper.path;

@@ -12,7 +12,7 @@ The job records discovered/processed counts, the current file, indexed/unchanged
 
 ## 2. Decide whether extraction is needed
 
-File identity is its absolute path, not a content hash. For each path, the importer compares its size and modification time in milliseconds with the stored record. If both are unchanged and the prior status is not `error`, extraction is skipped. Error records are retried. Thus a blank scanned PDF is skipped on later unchanged scans, while a corrupt file is retried.
+File identity is its absolute path, not a content hash. For each path, the importer compares its size and modification time in milliseconds with the stored record. If both are unchanged and the prior status is not `error`, full-text extraction is skipped. Legacy records whose `title_version=0` still receive a one-time opening-page title extraction and FTS update, using stored page text for fallback; later unchanged rescans skip this too. Error records are retried. Thus a blank scanned PDF is skipped on later unchanged scans, while a corrupt file is retried.
 
 The importer does not deduplicate identical PDFs at different paths. A rename behaves as a new path plus removal of the old path. Content modified while preserving both size and modification time will not be detected by this shortcut.
 
@@ -28,7 +28,15 @@ For each new, modified or previously failed PDF:
 
 The resulting page numbers are one-based PDF page positions, not printed journal page labels. Extracted text is saved as returned; reading order, line breaks, ligatures and hyphenation depend on Poppler and the PDF's text layer. Images and tables are not separately parsed. OCR is not performed.
 
-The title is the filename without its extension, with underscores converted to spaces and whitespace collapsed. Publisher headers on page one are deliberately not used as titles.
+### Paper titles
+
+[src/titles.js](../../src/titles.js) runs a separate bounded `pdftotext -f 1 -l 3 -enc UTF-8 -bbox-layout <PDF> -` extraction (15-second timeout, 8 MiB output limit). It reads PDF title metadata, visible words and their block geometry. The XML-like output is inspected without resolving external entities or interpreting any HTML.
+
+Embedded title metadata is accepted only when plausible and present in the visible text of an opening page, after Unicode/whitespace/punctuation normalization. Stale metadata such as a Word draft filename is rejected. When no verified metadata is available, the parser ranks plausible blocks in the upper 60% of the first three pages using median word height, vertical position and page order. It joins multiline title words and filters common article labels, URLs and publisher headers. Short banners repeated near the top of multiple pages at similar font heights are excluded from layout candidates. If layout extraction fails, a conservative opening-text heuristic is used. The final fallback is **Untitled paper**, never the filename.
+
+Extraction remains heuristic: some layouts or subtitles can be missed. `title_source` records `pdf-metadata`, `pdf-layout`, `pdf-text`, `unavailable`, `legacy` or `manual`; `title_page` records the detected page; `title_version=1` records completion of the current parser. Paper details exposes the source and a title editor. A manual correction survives changed-file rescans. Filenames remain visible in the original path/PDF link, but do not feed the Title search field after extraction.
+
+Schema version 3 preserves older stored titles as `legacy` until a folder rescan. Unchanged files get only the new title pass, without deleting/re-extracting stored page rows or saved author/abstract corrections. Cards clearly label titles awaiting that rescan. Files that cannot be parsed keep the documented unavailable title state rather than inventing a title from their path.
 
 ### Author and abstract fields
 
@@ -58,4 +66,4 @@ Roots can overlap, but a paper has only one recorded owner root; this is not a m
 
 ## Cancellation and restart
 
-Stop sets `job.cancelled`. Discovery checks this flag, and extraction checks it between files. The currently executing `pdftotext` is allowed to complete; user cancellation does not kill it. Cancelled scans do not remove missing-path records. Committed papers remain available. After an application restart, start another scan; unchanged committed papers are skipped.
+Stop sets `job.cancelled`. Discovery checks this flag, and extraction checks it between files. The current PDF's text/title subprocesses are allowed to complete; user cancellation does not kill them. A new file can require the 60-second text timeout plus the separate 15-second title timeout; a legacy unchanged file needs only the title pass. Cancelled scans do not remove missing-path records. Committed papers remain available. After an application restart, start another scan; unchanged committed papers are skipped once the current title parser has run.

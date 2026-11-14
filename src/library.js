@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { extractMetadata } from './metadata.js';
+import { readPaperTitle } from './titles.js';
 import { searchOptions, tokens, oneEdit, termMatches, matchRanges } from './search.js';
 const exec = promisify(execFile);
 
@@ -22,8 +23,8 @@ export class Library {
   }
   migrateSearch() {
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
-    if (version === 2) return;
-    if (version > 2) {
+    if (version === 3) return;
+    if (version > 3) {
       this.db.close();
       throw new Error(`Database version ${version} is newer than this app supports.`);
     }
@@ -31,6 +32,7 @@ export class Library {
     // rebuild the derived index from stored pages without rereading PDFs.
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      if(version<2) {
       this.db.exec(`ALTER TABLE papers ADD COLUMN abstract TEXT NOT NULL DEFAULT '';
         ALTER TABLE papers ADD COLUMN authors TEXT NOT NULL DEFAULT '';
         ALTER TABLE papers ADD COLUMN abstract_page INTEGER NOT NULL DEFAULT 1;
@@ -51,7 +53,12 @@ export class Library {
         PRAGMA user_version=2;`);
       this.db.exec(`UPDATE search SET abstract=coalesce((SELECT p.abstract FROM papers p WHERE p.id=search.paper_id AND p.abstract_page=search.page),''),
         authors=coalesce((SELECT p.authors FROM papers p WHERE p.id=search.paper_id AND p.authors_page=search.page),'');
-        COMMIT;`);
+        `);
+      }
+      this.db.exec(`ALTER TABLE papers ADD COLUMN title_source TEXT NOT NULL DEFAULT 'legacy';
+        ALTER TABLE papers ADD COLUMN title_page INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE papers ADD COLUMN title_version INTEGER NOT NULL DEFAULT 0;
+        PRAGMA user_version=3; COMMIT;`);
     } catch(e) { this.db.exec('ROLLBACK'); this.db.close(); throw e; }
   }
   stats() {
@@ -114,15 +121,18 @@ export class Library {
   }
   indexMetadata(id) {
     const paper=this.db.prepare('SELECT * FROM papers WHERE id=?').get(id);
+    this.db.prepare('UPDATE search SET title=? WHERE paper_id=?').run(paper.title,id);
     this.db.prepare(`UPDATE search SET abstract=CASE WHEN page=? THEN ? ELSE '' END,
       authors=CASE WHEN page=? THEN ? ELSE '' END WHERE paper_id=?`).run(paper.abstract_page,paper.abstract,paper.authors_page,paper.authors,id);
   }
   updateMetadata(id, input) {
     if (!this.detail(id)) throw new Error('Paper not found.');
     if (typeof input.abstract!=='string' || input.abstract.length>12000 || typeof input.authors!=='string' || input.authors.length>4000) throw new Error('Authors must be under 4,000 characters and abstract under 12,000.');
+    if(input.title!==undefined && (typeof input.title!=='string' || !input.title.trim() || input.title.length>1000))throw new Error('Title must contain 1 to 1,000 characters.');
     this.db.exec('BEGIN');
     try {
       this.db.prepare('UPDATE papers SET abstract=?,authors=?,metadata_edited=1 WHERE id=?').run(input.abstract.trim(),input.authors.trim(),id);
+      if(input.title!==undefined)this.db.prepare("UPDATE papers SET title=?,title_source='manual',title_version=1 WHERE id=?").run(input.title.trim(),id);
       this.indexMetadata(id);this.db.exec('COMMIT');
     } catch(e) {this.db.exec('ROLLBACK');throw e;}
     return this.detail(id);
@@ -159,7 +169,18 @@ export class Library {
       try {
         const stat = await fs.stat(file);
         const old = this.db.prepare('SELECT * FROM papers WHERE path=?').get(file);
-        if (old && old.mtime === stat.mtimeMs && old.size === stat.size && old.status !== 'error') { job.unchanged++; continue; }
+        if (old && old.mtime === stat.mtimeMs && old.size === stat.size && old.status !== 'error') {
+          if(!old.title_version) {
+            const actual=await fs.realpath(file),relative=path.relative(root,actual);
+            if(relative.startsWith('..') || path.isAbsolute(relative) || stat.size>100*1024*1024)throw new Error('PDF cannot be read within the selected folder and size limit.');
+            const title=await readPaperTitle(actual,this.detail(old.id).content);
+            this.db.exec('BEGIN');
+            try{this.db.prepare('UPDATE papers SET title=?,title_source=?,title_page=?,title_version=1 WHERE id=?').run(title.title,title.title_source,title.title_page,old.id);this.indexMetadata(old.id);this.db.exec('COMMIT');}
+            catch(e){this.db.exec('ROLLBACK');throw e;}
+            job.indexed++;
+          } else job.unchanged++;
+          continue;
+        }
         let pages = [], error = null;
         try {
           if (stat.size > 100 * 1024 * 1024) throw new Error('PDF exceeds 100 MB limit.');
@@ -171,8 +192,10 @@ export class Library {
           if (!pages.at(-1)?.trim()) pages.pop();
         } catch (e) { error = e.code === 'ENOENT' ? 'pdftotext is missing. Install Poppler; see README.' : e.message.slice(0, 500); }
         const status = error ? 'error' : pages.some(p => p.trim()) ? 'ready' : 'no-text';
-        // Filenames are more dependable than publisher headers on the first page.
-        const title = path.basename(file, path.extname(file)).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+        const extractedPages=pages.map((text,i)=>({number:i+1,text}));
+        const titleInfo=old?.title_source==='manual'?{title:old.title,title_source:'manual',title_page:Math.min(old.title_page,Math.max(1,pages.length))}:
+          error?{title:'Untitled paper',title_source:'unavailable',title_page:1}:await readPaperTitle(file,extractedPages);
+        const title=titleInfo.title;
         this.db.exec('BEGIN');
         try {
           if (old) { this.db.prepare('DELETE FROM search WHERE paper_id=?').run(old.id); this.db.prepare('DELETE FROM pages WHERE paper_id=?').run(old.id); }
@@ -188,6 +211,7 @@ export class Library {
             abstract:old.abstract,authors:old.authors,
             abstract_page:Math.min(old.abstract_page,Math.max(1,pages.length)),authors_page:Math.min(old.authors_page,Math.max(1,pages.length))
           } : extractMetadata(pages.map((text,i)=>({number:i+1,text})));
+          this.db.prepare('UPDATE papers SET title_source=?,title_page=?,title_version=1 WHERE id=?').run(titleInfo.title_source,titleInfo.title_page,result.id);
           this.db.prepare('UPDATE papers SET abstract=?,authors=?,abstract_page=?,authors_page=? WHERE id=?')
             .run(metadata.abstract,metadata.authors,metadata.abstract_page,metadata.authors_page,result.id);
           this.indexMetadata(result.id);

@@ -14,6 +14,8 @@ Implementation: the `Library` constructor and migration in [src/library.js](../.
 
 Version 2 adds these non-null `papers` columns: `abstract TEXT DEFAULT ''`, `authors TEXT DEFAULT ''`, `abstract_page INTEGER DEFAULT 1`, `authors_page INTEGER DEFAULT 1`, and `metadata_edited INTEGER DEFAULT 0`. Page fields record where inferred metadata came from. Saving either metadata field sets the shared edit flag; later rescans preserve both fields and clamp their page positions to the new PDF page count. Text may be incomplete or user-corrected and is not verified bibliographic data.
 
+Version 3 adds `title_source TEXT DEFAULT 'legacy'`, `title_page INTEGER DEFAULT 1`, and `title_version INTEGER DEFAULT 0`. A completed title pass sets parser version 1 and provenance to `pdf-metadata`, `pdf-layout`, `pdf-text` or `unavailable`. A saved title correction uses source `manual`. These values are separate from the shared author/abstract edit flag. Legacy title values remain until a rescan, so migration itself does not require original PDFs to be present.
+
 `papers.root` is the importing root path but has no SQL foreign-key constraint. `pages.paper_id` references `papers.id ON DELETE CASCADE`. FTS rows have no automatic foreign-key cascade or update trigger: the library explicitly maintains them in the same transactions as metadata/pages.
 
 `mtime` holds the filesystem modification timestamp in milliseconds; `size` is bytes. `indexed` records SQL UTC time on insert or a processed upsert, not every unchanged rescan. A `ready` paper can contain individual empty pages. `no-text` and `error` records can still be found through their titles.
@@ -37,9 +39,10 @@ The application does not maintain an embedding table, content hashes, structured
 | --- | --- |
 | `0` | Legacy/unversioned database; original index used Porter stemming |
 | `1` | Earlier literal Unicode index without metadata fields |
-| `2` | Current schema: author/abstract fields, expanded FTS columns and vocabulary view |
+| `2` | Author/abstract fields, expanded FTS columns and vocabulary view |
+| `3` | Current schema: PDF title provenance, source page and parser version |
 
-Fresh databases and existing version-0/version-1 databases run version-2 initialization in one immediate transaction. Existing metadata and page rows are preserved, inferred author/abstract fields are backfilled, and the derived FTS index and vocabulary are rebuilt. Future versions greater than 2 are rejected to avoid silently using an incompatible database. See [search migration](../architecture/search.md#existing-database-migration).
+Fresh databases and older versions migrate transactionally to version 3. For versions below 2, author/abstract fields are backfilled and FTS is rebuilt. Version 2 only needs new title columns; it preserves corrected metadata and page text. Future versions greater than 3 are rejected. A subsequent folder rescan updates legacy titles and FTS without re-extracting unchanged page text. See [search migration](../architecture/search.md#existing-database-migration).
 
 Paper reindexing and removal use separate transactions per paper. A complete import is not one atomic transaction: committed papers remain available if later files fail or an import is cancelled.
 

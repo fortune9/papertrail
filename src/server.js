@@ -10,7 +10,7 @@ const project = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const json = (res, status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
 async function body(req) {
   let result = '';
-  for await (const chunk of req) { result += chunk; if (result.length > 16384) throw new Error('Request too large.'); }
+  for await (const chunk of req) { result += chunk; if (result.length > 65536) throw new Error('Request too large.'); }
   return JSON.parse(result || '{}');
 }
 export function createHandler(library, assistant, port = 3210) {

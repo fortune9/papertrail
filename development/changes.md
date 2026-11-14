@@ -1,5 +1,13 @@
 # Implementation change record
 
+## PDF-derived titles and first-time setup guide — 2026-11-13
+
+Replaced filename-derived titles with verified embedded PDF title metadata, bounded opening-page layout extraction and a text fallback. Metadata must occur in visible opening-page text; stale document names, common publisher labels and repeated large running banners are filtered. Undetectable titles become **Untitled paper**. Titles can be corrected in paper details and stay corrected across rescans.
+
+Schema version 3 adds title provenance, detected page and parser-version fields. Older titles are explicitly marked as legacy until a rescan. An unchanged PDF gets only the title pass; stored pages and saved author/abstract corrections remain intact. The current 32-paper/532-page library was refreshed without changing any stored page row; 27 titles used verified metadata and 5 used layout. All eleven regression tests pass, including upgrades from versions 0, 1 and 2 and repeated-banner rejection.
+
+Rewrote the README Run locally guide for a first-time user, covering Git installation/cloning, Node 24, Poppler, Ubuntu/WSL/macOS setup, validation commands, dependency installation, first import and subsequent restarts. Replaced machine-specific paths with generic examples, including in development verification notes. Linked official installation sources; installers and clean-machine setup were not executed here.
+
 ## Highlight matching result words — 2026-11-13
 
 Result titles and excerpts now highlight matching tokens using the active field selection, case and fuzzy settings. Server responses include UTF-16 ranges computed with the same matching rules as retrieval; the browser creates text and gold `<mark>` nodes without interpreting PDF content as HTML. Fuzzy search highlights the actual matched spelling. Title highlights are omitted when Title is excluded.

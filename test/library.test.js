@@ -8,18 +8,21 @@ import { createHandler } from '../src/server.js';
 import { Assistant } from '../src/assistant.js';
 import { DatabaseSync } from 'node:sqlite';
 import { extractMetadata } from '../src/metadata.js';
+import { titleFromLayout, titleFromText } from '../src/titles.js';
 
-function pdf(pages) {
+function pdf(pages, title) {
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>', `<< /Type /Pages /Count ${pages.length} /Kids [${pages.map((_,i)=>`${4+i*2} 0 R`).join(' ')}] >>`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
   for(const [i,text] of pages.entries()) {
     const stream=`BT /F1 12 Tf 40 700 Td (${text.replace(/[()\\]/g,'\\$&')}) Tj ET`;
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5+i*2} 0 R >>`, `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
   }
+  let info='';
+  if(title!==undefined){objects.push(`<< /Title (${title.replace(/[()\\]/g,'\\$&')}) >>`);info=` /Info ${objects.length} 0 R`;}
   let out='%PDF-1.4\n'; const offsets=[0];
   objects.forEach((object,i)=>{offsets.push(out.length);out+=`${i+1} 0 obj\n${object}\nendobj\n`;});
   const xref=out.length;out+=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;
   out+=offsets.slice(1).map(offset=>`${String(offset).padStart(10,'0')} 00000 n \n`).join('');
-  return out+`trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return out+`trailer\n<< /Size ${objects.length+1} /Root 1 0 R${info} >>\nstartxref\n${xref}\n%%EOF\n`;
 }
 async function imported(lib, folder) { await lib.startImport(folder); while(lib.job.running)await new Promise(r=>setTimeout(r,10)); }
 async function request(handler,url,{method='GET',data,host='127.0.0.1:3210',origin}={}) {
@@ -117,7 +120,7 @@ test('whole-word retrieval excludes related stems and prefixes, including after 
     const before=legacy.prepare('SELECT * FROM papers ORDER BY id').all();
     const pagesBefore=legacy.prepare('SELECT * FROM pages ORDER BY id').all();
     legacy.close();lib=new Library(database);
-    assert.equal(lib.db.prepare('PRAGMA user_version').get().user_version,2);
+    assert.equal(lib.db.prepare('PRAGMA user_version').get().user_version,3);
     assert.deepEqual(lib.db.prepare('SELECT * FROM papers ORDER BY id').all().map(row=>Object.fromEntries(Object.keys(before[0]).map(key=>[key,row[key]]))),before.map(row=>({...row})));
     assert.deepEqual(lib.db.prepare('SELECT * FROM pages ORDER BY id').all(),pagesBefore);
     assert.deepEqual(lib.search('transformer').papers.map(p=>p.id).sort((a,b)=>a-b),[22,55]);
@@ -144,7 +147,7 @@ test('field scopes, case controls, fuzzy typos and metadata corrections work thr
   try{
     const root=path.join(dir,'papers');await fs.mkdir(root);
     const file=path.join(root,'Transformer methods.pdf');
-    await fs.writeFile(file,pdf(['Alice Smith, Bob Jones','Abstract: Methylation evidence.\nIntroduction\nBodyonly marker.']));
+    await fs.writeFile(file,pdf(['Transformer methods','Alice Smith, Bob Jones','Abstract: Methylation evidence.\nIntroduction\nBodyonly marker.']));
     await imported(lib,root);
     const id=lib.search('Transformer').papers[0].id;
     lib.updateMetadata(id,{authors:'Alice Smith; Bob Jones',abstract:'Distinctive methylation abstractmarker'});
@@ -198,9 +201,10 @@ test('version 1 databases backfill detected metadata without rereading PDFs or c
       CREATE VIRTUAL TABLE search USING fts5(title,text,paper_id UNINDEXED,page UNINDEXED,tokenize='unicode61 remove_diacritics 0');
       ALTER TABLE papers DROP COLUMN abstract; ALTER TABLE papers DROP COLUMN authors;
       ALTER TABLE papers DROP COLUMN abstract_page; ALTER TABLE papers DROP COLUMN authors_page; ALTER TABLE papers DROP COLUMN metadata_edited;
+      ALTER TABLE papers DROP COLUMN title_source; ALTER TABLE papers DROP COLUMN title_page; ALTER TABLE papers DROP COLUMN title_version;
       PRAGMA user_version=1;`);
     lib.db.close();lib=new Library(database);
-    assert.equal(lib.db.prepare('PRAGMA user_version').get().user_version,2);
+    assert.equal(lib.db.prepare('PRAGMA user_version').get().user_version,3);
     assert.deepEqual(lib.detail(42).content,pagesBefore);
     assert.equal(lib.search('Alice',40,0,{fields:['authors']}).papers[0].id,42);
     assert.equal(lib.search('discovery',40,0,{fields:['abstract']}).papers[0].id,42);
@@ -208,4 +212,60 @@ test('version 1 databases backfill detected metadata without rereading PDFs or c
     lib.db.close();lib=new Library(database);assert.equal(lib.search('Alice',40,0,{fields:['authors']}).total,1);
     const missing=extractMetadata([{number:1,text:'A title\nThis document has no labeled metadata.'}]);assert.equal(missing.abstract,'');assert.equal(missing.authors,'');
   }finally{lib.db.close();await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('titles come from PDF contents and corrected titles survive import and version-2 migration',async()=>{
+  const dir=await fs.mkdtemp('/tmp/papertrail-titles-'),root=path.join(dir,'papers'),database=path.join(dir,'library.sqlite');
+  let lib=new Library(database);
+  try{
+    await fs.mkdir(root);
+    const file=path.join(root,'misleading-download-name.pdf');
+    await fs.writeFile(file,pdf(['Actual Scientific Paper Title','Alice Smith, Bob Jones'],'Actual Scientific Paper Title'));
+    await fs.writeFile(path.join(root,'another-wrong-name.pdf'),pdf(['Visible Title Without Metadata'],'Microsoft Word draft.docx'));
+    await fs.writeFile(path.join(root,'scanned-title.pdf'),pdf(['']));
+    await imported(lib,root);
+    const paper=lib.db.prepare('SELECT * FROM papers WHERE path=?').get(file);
+    assert.equal(paper.title,'Actual Scientific Paper Title');assert.equal(paper.title_source,'pdf-metadata');
+    assert.equal(lib.search('misleading',40,0,{fields:['title']}).total,0);
+    const second=lib.db.prepare('SELECT * FROM papers WHERE path=?').get(path.join(root,'another-wrong-name.pdf'));
+    assert.equal(second.title,'Visible Title Without Metadata');assert.equal(second.title_source,'pdf-layout');
+    assert.equal(lib.db.prepare('SELECT title FROM papers WHERE path=?').get(path.join(root,'scanned-title.pdf')).title,'Untitled paper');
+    const before=lib.detail(paper.id).content;
+    lib.updateMetadata(paper.id,{authors:'Corrected Author',abstract:'Saved abstract'});
+    // Reproduce the immediately previous schema and filename-derived title.
+    lib.db.prepare('UPDATE papers SET title=? WHERE id=?').run('misleading download name',paper.id);lib.indexMetadata(paper.id);
+    lib.db.exec('ALTER TABLE papers DROP COLUMN title_source; ALTER TABLE papers DROP COLUMN title_page; ALTER TABLE papers DROP COLUMN title_version; PRAGMA user_version=2;');
+    lib.db.close();lib=new Library(database);
+    assert.equal(lib.db.prepare('PRAGMA user_version').get().user_version,3);
+    assert.equal(lib.detail(paper.id).title_source,'legacy');
+    await imported(lib,root);assert.equal(lib.job.indexed,3);
+    assert.deepEqual(lib.detail(paper.id).content,before);
+    assert.equal(lib.detail(paper.id).title,'Actual Scientific Paper Title');assert.equal(lib.detail(paper.id).authors,'Corrected Author');
+    assert.equal(lib.search('misleading',40,0,{fields:['title']}).total,0);
+    await imported(lib,root);assert.equal(lib.job.unchanged,3);
+    const handler=createHandler(lib,{configured:false});
+    const result=await request(handler,`/api/papers/${paper.id}/metadata`,{method:'POST',data:{title:'Manually corrected title',authors:'Corrected Author',abstract:'Saved abstract'}});
+    assert.equal(result.status,200);assert.equal(result.json().title_source,'manual');
+    assert.equal(lib.search('Manually',40,0,{fields:['title']}).total,1);
+    assert.equal((await request(handler,`/api/papers/${paper.id}/metadata`,{method:'POST',data:{title:' ',authors:'',abstract:''}})).status,400);
+    await fs.writeFile(file,pdf(['A new title in the revised PDF'],'A new title in the revised PDF'));await imported(lib,root);
+    assert.equal(lib.detail(paper.id).title,'Manually corrected title');assert.equal(lib.detail(paper.id).abstract,'Saved abstract');
+    lib.db.close();lib=new Library(database);assert.equal(lib.detail(paper.id).title,'Manually corrected title');
+  }finally{lib.db.close();await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('title layout rejects headers, joins multiline titles and decodes embedded entities safely',()=>{
+  const xml=`<html><head><title>Unrelated metadata draft.docx</title></head><body><page height="800">
+    <block yMin="10"><word yMin="10" yMax="90">www.publisher.org</word></block>
+    <block yMin="50"><word yMin="50" yMax="90">REVIEW</word></block>
+    <block yMin="100"><line><word yMin="100" yMax="122">DNA &amp; Cancer:</word></line><line><word yMin="124" yMax="146">New Perspectives</word></line></block>
+    <block yMin="200"><word yMin="200" yMax="210">Body paragraph about the research.</word></block>
+    </page></body></html>`;
+  assert.equal(titleFromLayout(xml).title,'DNA & Cancer: New Perspectives');
+  assert.equal(titleFromLayout(xml.replace('Unrelated metadata draft.docx','DNA &amp; Cancer: New Perspectives')).title_source,'pdf-metadata');
+  assert.equal(titleFromLayout('<html><title>Misleading metadata</title></html>'),null);
+  assert.equal(titleFromText([{number:1,text:'www.publisher.org\n\nA Real Opening Title\nAlice Smith, Bob Jones\n\nAbstract\nText'}]).title,'A Real Opening Title');
+  assert.equal(titleFromText([{number:1,text:''}]).title,'Untitled paper');
+  const repeated=`<html><title></title><page height="800"><block yMin="50"><word yMin="50" yMax="95">Think again</word></block><block yMin="100"><word yMin="100" yMax="122">A Real Article Title</word></block></page><page height="800"><block yMin="50"><word yMin="50" yMax="95">Think again</word></block></page></html>`;
+  assert.equal(titleFromLayout(repeated).title,'A Real Article Title');
 });

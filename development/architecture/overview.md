@@ -23,6 +23,7 @@ flowchart LR
 | Library | [src/library.js](../../src/library.js) | Schema migration, discovery, extraction, transactions, search, statistics |
 | Search helpers | [src/search.js](../../src/search.js) | Option validation, tokenization and one-edit spelling comparison |
 | Metadata helpers | [src/metadata.js](../../src/metadata.js) | Best-effort author and abstract extraction from opening pages |
+| Title extraction | [src/titles.js](../../src/titles.js) | Verified PDF title metadata, page-layout detection and text fallback |
 | Assistant | [src/assistant.js](../../src/assistant.js) | Provider registration, immutable agent registration, sessions, streaming, cancellation |
 | Browser | [public/app.js](../../public/app.js) | Fetching, search debounce, cards, dialogs, progress, streamed answers |
 | Result highlighting | [public/highlight.js](../../public/highlight.js) | Safe text/mark rendering of server-provided title and excerpt ranges |
