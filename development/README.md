@@ -11,7 +11,7 @@ development/
 │   ├── search.md                     Token matching, ranking and migration
 │   ├── assistant.md                  OpenWorker lifecycle and shared retrieval
 │   ├── codex.md                      Local Codex SDK backend and authentication
-│   └── desktop.md                    Electron shell, storage, IPC and GUI sign-in
+│   └── desktop.md                    Electron shell, optional AI tools, storage, IPC and GUI sign-in
 ├── reference/
 │   ├── database.md                   Tables, relationships and versions
 │   └── http-and-ui.md                Routes and browser behavior

@@ -6,13 +6,14 @@ A local research paper library. Recursively import text-based PDFs, store extrac
 
 The first desktop installer targets **Ubuntu/Debian Linux x64** (Ubuntu 22.04+ / Debian 12+ with a graphical desktop). Windows and macOS installers are not implemented yet. This is a preview build: packaged components are checked, but a normal desktop installation and complete graphical sign-in still need verification outside the restricted development session.
 
-1. Download the provided `papertrail_1.1.0_amd64.deb` installer and open it with your system's graphical package installer.
-2. Choose **Install**. It installs Electron, Codex and OpenWorker with Papertrail and asks the package manager to install Poppler and desktop libraries. An internet connection may be needed to obtain missing system dependencies. Git, npm and a separate Node/Codex installation are not needed by end users.
+1. Download the provided `papertrail_1.2.0_amd64.deb` installer and open it with your system's graphical package installer.
+2. Choose **Install**. It installs Papertrail with Electron and asks the package manager to install Poppler and desktop libraries. Codex, OpenWorker native tools and npm are not included in the base installer. An internet connection may be needed to obtain missing system dependencies. Git, npm and a separate Node/Codex installation are not needed by end users.
 3. Open **Papertrail** from the applications menu.
 4. Click **Add a folder**, choose your PDF directory and confirm **Index folder**.
-5. To enable AI, select **Local Codex (ChatGPT)** and click **Sign in with ChatGPT**. Finish in your browser. The app checks the connection when sign-in finishes; no terminal or API key is needed for this route.
+5. AI is optional. Open **Settings → AI components**. Papertrail detects an existing Codex **0.169.0** executable on PATH, or use **Find existing Codex** / **Choose Codex executable…**. If absent, click **Download Codex**. Other versions have not been qualified with the pinned SDK; the matching download can coexist with your installed version. Then select **Local Codex (ChatGPT)** and click **Sign in with ChatGPT**. Finish in your browser; no terminal, npm or API key is needed for this route.
+6. For API/Ollama instead, click **Download OpenWorker** in Settings and save your provider configuration. Download only the backend you need.
 
-**Settings** provides API/Ollama configuration and **Import an existing library**. API keys can be remembered with the desktop keyring; if secure storage is unavailable, leave Remember key unchecked to use a key for the current session only. The installed app has its own Codex sign-in, separate from an existing terminal login.
+**Settings** provides API/Ollama configuration and **Import an existing library**. API keys can be remembered with the desktop keyring; if secure storage is unavailable, leave Remember key unchecked to use a key for the current session only. Optional downloads require internet, show progress/cancellation, verify a pinned SHA-512 checksum and are stored under the application-data directory. No AI tool is downloaded at startup. Existing Codex installations are used in place and never replaced. Enabling AI adds its runtime disk usage later; the smaller installer does not reduce that backend’s eventual disk requirements. The installed app has its own Codex sign-in, separate from an existing terminal login, even when reusing the executable.
 
 Desktop data is stored in the operating system's application-data directory (normally `~/.config/Papertrail` on Linux), shown in Settings. To bring an earlier web library across, select its `data/library.sqlite` while the desktop library is empty. The app snapshots the database, keeps the source untouched and restarts. Original PDFs must remain at their recorded paths. App updates preserve this user-data directory; uninstalling the program does not erase it.
 
@@ -138,7 +139,7 @@ In the source/browser version, the database lives in `data/library.sqlite`; the 
 
 ## Optional AI assistant
 
-Offline import and search require neither credentials nor a model. The **Answer with** selector in the companion panel offers two independent options. OpenWorker remains the default; selecting Codex does not change your API/Ollama configuration.
+Offline import and search require neither credentials nor a model. The **Answer with** selector in the companion panel offers two independent options. The source/browser version defaults to OpenWorker; the desktop defaults to Codex. Selecting Codex does not change your API/Ollama configuration.
 
 ### Local Codex with ChatGPT sign-in (source/browser version)
 
@@ -161,7 +162,7 @@ Codex runs locally but calls OpenAI for inference. Only explicit questions send 
 
 ### OpenWorker with an API provider or Ollama
 
-The original option remains available. The desktop app exposes its model, URL, API format and key in Settings. For the source/browser version, if `.env` does not exist yet, create it:
+The original option remains available. In the desktop app, download the OpenWorker component from Settings first; its model, URL, API format and key are configured there. For the source/browser version, if `.env` does not exist yet, create it:
 
 ```bash
 cp .env.example .env

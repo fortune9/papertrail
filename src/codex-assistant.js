@@ -36,7 +36,7 @@ export class CodexAssistant {
           message:chatgpt?'Connected with ChatGPT. Uses your Codex subscription allowance.':this.env.PAPERTRAIL_DESKTOP?'Use Sign in with ChatGPT in this app.':'Sign in with ChatGPT: run npm run codex:login in your terminal.'};
       }catch(error){
         this.connection={id:'codex',label:'Local Codex (ChatGPT)',configured:false,
-          message:error.code==='ENOENT'?'Codex was not found. Run npm ci, or set CODEX_PATH to your local executable.':'Codex is not signed in or could not be checked. Run npm run codex:login, then check the connection.'};
+          message:this.env.PAPERTRAIL_DESKTOP?'Codex is unavailable or not signed in. Open Settings → AI components, then Sign in with ChatGPT.':error.code==='ENOENT'?'Codex was not found. Run npm ci, or set CODEX_PATH to your local executable.':'Codex is not signed in or could not be checked. Run npm run codex:login, then check the connection.'};
       }
       this.checkedAt=Date.now();return this.connection;
     })();

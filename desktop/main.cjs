@@ -1,4 +1,4 @@
-const {app,BrowserWindow,dialog,ipcMain,Menu,safeStorage,shell,session}=require('electron');
+const {app,BrowserWindow,dialog,ipcMain,Menu,safeStorage,shell,session,net}=require('electron');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const {randomBytes,createHash}=require('node:crypto');
@@ -7,7 +7,7 @@ const fs=require('node:fs/promises');
 app.setName('Papertrail');
 if(process.platform==='linux')app.setDesktopName('papertrail.desktop');
 if(process.env.PAPERTRAIL_DESKTOP_DATA_DIR)app.setPath('userData',path.resolve(process.env.PAPERTRAIL_DESKTOP_DATA_DIR));
-let window,backend,settings,preferences,login,service,paths,stopping=false,canQuit=false;
+let window,backend,settings,preferences,login,service,tools,stopping=false,canQuit=false;
 const token=randomBytes(32).toString('hex');
 const root=app.getAppPath();
 const load=relative=>import(pathToFileURL(path.join(root,relative)).href);
@@ -19,17 +19,16 @@ app.on('before-quit',event=>{
   if(canQuit)return;
   event.preventDefault();if(stopping)return;stopping=true;
   const forced=setTimeout(()=>app.exit(0),10000).unref();
-  Promise.resolve().then(async()=>{login?.cancel();await backend?.close();await preferences?.writing.catch(()=>{});}).catch(error=>console.error('Shutdown:',error.message)).finally(()=>{clearTimeout(forced);canQuit=true;app.quit();});
+  Promise.resolve().then(async()=>{login?.cancel();await tools?.close();await backend?.close();await preferences?.writing.catch(()=>{});}).catch(error=>console.error('Shutdown:',error.message)).finally(()=>{clearTimeout(forced);canQuit=true;app.quit();});
 });
 app.whenReady().then(async()=>{
-  const [{desktopPaths},{SettingsStore,PreferencesStore},{DesktopLogin},{Assistant},{CodexAssistant},{AssistantService},{startLocalServer},{searchOptions},{trustedDesktopSender,libraryPdfUrl}]=await Promise.all([
-    load('desktop/paths.js'),load('desktop/settings.js'),load('desktop/login.js'),load('src/assistant.js'),load('src/codex-assistant.js'),load('src/assistant-service.js'),load('src/server.js'),load('src/search.js'),load('desktop/security.js')]);
-  paths=desktopPaths({packaged:app.isPackaged,resourcesPath:process.resourcesPath,appRoot:root});
-  await Promise.all([paths.codex,paths.openworker].map(file=>fs.access(file,fs.constants.X_OK)));
+  const [{ToolManager,missingAssistant},{SettingsStore,PreferencesStore},{DesktopLogin},{Assistant},{CodexAssistant},{AssistantService},{startLocalServer},{searchOptions},{trustedDesktopSender,libraryPdfUrl}]=await Promise.all([
+    load('desktop/tools.js'),load('desktop/settings.js'),load('desktop/login.js'),load('src/assistant.js'),load('src/codex-assistant.js'),load('src/assistant-service.js'),load('src/server.js'),load('src/search.js'),load('desktop/security.js')]);
   const directory=app.getPath('userData');
   await fs.mkdir(directory,{recursive:true,mode:0o700});
   await fs.chmod(directory,0o700);
   const codexHome=path.join(directory,'codex');await fs.mkdir(codexHome,{recursive:true,mode:0o700});
+  tools=new ToolManager(directory,{env:{...process.env,CODEX_HOME:codexHome},fetchImpl:(url,options)=>net.fetch(url,options)});await tools.load();
   settings=new SettingsStore(directory,safeStorage);await settings.load();
   preferences=new PreferencesStore(directory,input=>{
     if(!input || typeof input!=='object')throw new Error('Invalid preferences.');
@@ -37,13 +36,20 @@ app.whenReady().then(async()=>{
     return {...(input.backend?{backend:input.backend}:{}),...(input.searchOptions?{searchOptions:searchOptions(input.searchOptions)}:{})};
   });await preferences.load();
   const makeOpenWorker=()=>{
+    if(!tools.ready.openworker)return missingAssistant('openworker');
     const env=settings.environment();
     const identity=createHash('sha256').update(JSON.stringify([env.AI_MODEL,env.AI_BASE_URL,env.AI_API])).digest('hex').slice(0,16);
-    return new Assistant(directory,{env,executable:paths.openworker,agentName:`desktop-reader-v1-${identity}`,providerName:`DesktopProvider-${identity}`});
+    return new Assistant(directory,{env,executable:tools.ready.openworker.path,agentName:`desktop-reader-v1-${identity}`,providerName:`DesktopProvider-${identity}`});
   };
-  const codexEnv={...process.env,CODEX_HOME:codexHome,CODEX_PATH:paths.codex,PAPERTRAIL_DESKTOP:'1'};
-  service=new AssistantService(directory,{openworker:makeOpenWorker(),codex:new CodexAssistant({env:codexEnv}),defaultBackend:'codex'});
-  login=new DesktopLogin(paths.codex,codexEnv,url=>shell.openExternal(url),{version:app.getVersion()});
+  const codexEnvironment=()=>({...process.env,CODEX_HOME:codexHome,CODEX_PATH:tools.ready.codex?.path,PAPERTRAIL_DESKTOP:'1'});
+  const makeCodex=()=>tools.ready.codex?new CodexAssistant({env:codexEnvironment()}):missingAssistant('codex');
+  service=new AssistantService(directory,{openworker:makeOpenWorker(),codex:makeCodex(),defaultBackend:'codex'});
+  const resetAssistants=async()=>{
+    login?.cancel();await service.shutdown();
+    service.engines={openworker:makeOpenWorker(),codex:makeCodex()};
+    login=tools.ready.codex?new DesktopLogin(tools.ready.codex.path,codexEnvironment(),url=>shell.openExternal(url),{version:app.getVersion()}):null;
+  };
+  await resetAssistants();
   backend=await startLocalServer({dataDir:directory,assistant:service,token});
   const origin=backend.url;
   const desktopSession=session.fromPartition('persist:papertrail');
@@ -66,10 +72,31 @@ app.whenReady().then(async()=>{
     try{const result=await settings.save(input);await service.engines.openworker.shutdown();service.engines.openworker=makeOpenWorker();return result;}
     finally{service.reconfiguring=false;}
   });
-  handle('desktop:sign-in',()=>{if(service.busy)throw new Error('Wait for the current answer before signing in.');return login.start();});
-  handle('desktop:sign-in-status',()=>login.status());
-  handle('desktop:open-sign-in-page',()=>login.openPage());
-  handle('desktop:cancel-sign-in',()=>login.cancel());
+  handle('desktop:sign-in',()=>{if(service.busy)throw new Error('Wait for the current answer or download before signing in.');if(!login)throw new Error('Open Settings → AI components to find or download Codex first.');return login.start();});
+  handle('desktop:sign-in-status',()=>login?.status() || {running:false,message:'Set up Codex in Settings first.'});
+  handle('desktop:open-sign-in-page',()=>{if(!login)throw new Error('Set up Codex first.');return login.openPage();});
+  handle('desktop:cancel-sign-in',()=>login?.cancel());
+  const toolsAvailable=()=>{if(service.busy || login?.status().running)throw new Error('Wait for the current answer, sign-in or download to finish first.');};
+  handle('desktop:get-tools',()=>tools.status());
+  handle('desktop:detect-tools',async()=>{
+    toolsAvailable();service.reconfiguring=true;
+    try{await tools.detect();await resetAssistants();return tools.status();}finally{service.reconfiguring=false;}
+  });
+  handle('desktop:choose-codex',async()=>{
+    toolsAvailable();
+    const choice=await dialog.showOpenDialog(window,{title:'Select an existing Codex executable',properties:['openFile']});
+    if(choice.canceled)return tools.status();
+    toolsAvailable();service.reconfiguring=true;
+    try{await tools.selectCodex(choice.filePaths[0]);await resetAssistants();return tools.status();}finally{service.reconfiguring=false;}
+  });
+  handle('desktop:install-tool',id=>{
+    toolsAvailable();tools.spec(id);
+    if(tools.ready[id])return tools.status();
+    const state=tools.startInstall(id);service.reconfiguring=true;
+    tools.task=tools.task.then(()=>resetAssistants()).catch(()=>{tools.job={...tools.job,error:true,message:'The component was downloaded, but could not be connected. Restart Papertrail.'};}).finally(()=>{service.reconfiguring=false;});
+    return state;
+  });
+  handle('desktop:cancel-tool-download',()=>tools.cancel());
   handle('desktop:import-library',async()=>{
     if(service.busy || backend.library.job?.running)throw new Error('Wait for indexing and answers to finish first.');
     if(backend.library.stats().total)throw new Error('Import is available only for an empty desktop library. Your current papers have been kept.');

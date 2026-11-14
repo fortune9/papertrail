@@ -1,0 +1,14 @@
+{
+  "codex": {
+    "version": "0.169.0",
+    "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-linux-x64.tgz",
+    "integrity": "sha512-o05NyAOCDygSPRo1yinzxvkRSdmsZyBD9E7mbpmjRanSfM8lypqWtQgEo4XfNkwhuCR2aFu8mlGOsQGFXVbVww==",
+    "executable": "package/vendor/x86_64-unknown-linux-musl/bin/codex"
+  },
+  "openworker": {
+    "version": "0.1.0-beta.3",
+    "url": "https://registry.npmjs.org/@openworkerai/harness-runtime-linux-x64/-/harness-runtime-linux-x64-0.1.0-beta.3.tgz",
+    "integrity": "sha512-6qXCgpk5gK66Z9Xeibbh9PNuEyMtnobghOJKN+OIbcD3VNXKgO8IUZjJUi8Q8EeIpaEQeBW06S6KkXKGuUpA7w==",
+    "executable": "package/bin/openworker-harness"
+  }
+}

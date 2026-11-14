@@ -36,6 +36,7 @@ flowchart LR
 | Highlight regression suite | [test/highlight.test.js](../../test/highlight.test.js) | Matching semantics, Unicode offsets, snippet boundaries and safe DOM rendering contract |
 | Codex regression suite | [test/codex-assistant.test.js](../../test/codex-assistant.test.js) | Actual SDK subprocess fixtures, authentication rules and backend routing |
 | Desktop shell | [desktop/main.cjs](../../desktop/main.cjs), [desktop/preload.cjs](../../desktop/preload.cjs) | Window lifecycle, native controls and a narrow isolated IPC bridge |
+| Optional AI components | [desktop/tools.js](../../desktop/tools.js) | Detect existing Codex, verify/install user-requested downloads and report unavailable backends |
 | Desktop regression suite | [test/desktop.test.js](../../test/desktop.test.js) | Settings/keyring contract, structured login, preferences, database snapshots and trust boundaries |
 
 ## Lifetimes and storage
@@ -44,7 +45,7 @@ flowchart LR
 
 Original PDFs stay in their folders. SQLite holds metadata, extracted page text, and a derived search index. Import progress is an in-memory object and disappears on restart; completed paper transactions persist. There is one import job and at most one assistant answer at a time. SQL executes synchronously in Node; PDF extraction is asynchronous and sequential across files.
 
-The [desktop app](desktop.md) starts that server privately on an ephemeral port, with a per-launch request token injected by its Electron session. Its data is in Electron's user-data directory rather than the source checkout. It owns an independent Codex login home, persistent preferences and encrypted/session-only provider settings.
+The [desktop app](desktop.md) starts that server privately on an ephemeral port, with a per-launch request token injected by its Electron session. Its data is in Electron's user-data directory rather than the source checkout. It owns an independent Codex login home, persistent preferences and encrypted/session-only provider settings. Native AI tools are optional: it detects an existing matching Codex or downloads pinned components from Settings; offline startup/search work without either backend.
 
 OpenWorker starts lazily on the first OpenWorker question. Its durable sessions are separate from SQLite and live under `data/harness/`. Codex login status is checked through the CLI, cached for 30 seconds, and refreshed explicitly on demand. Each Codex question starts a fresh SDK thread in a temporary working directory; Codex itself may retain session history in its own home. The app cancels imports and both engines during shutdown and gives cleanup eight seconds before forced exit.
 

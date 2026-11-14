@@ -1,5 +1,11 @@
 # Implementation change record
 
+## Smaller installer and optional AI components — 2026-11-14
+
+The 1.1.0 installer bundled 404 MiB of native Codex tools and 33 MiB of OpenWorker alongside Electron. Version 1.2.0 excludes both native AI packages and the Codex JavaScript wrapper; npm was already excluded. Offline startup/indexing/search are independent of AI availability. Settings detects or selects an existing Codex 0.169.0 without copying/modifying it, or explicitly downloads pinned native packages into user data with SHA-512 verification, progress, cancellation and staging cleanup. Authentication remains separate from the terminal login. Other Codex versions are not silently treated as compatible with the pinned SDK. API settings can be saved before downloading OpenWorker.
+
+No database migration or reindex is required. Existing libraries/settings survive upgrades; AI tools previously bundled under `/opt` must now be detected/downloaded. Downloading all AI components later still uses their full disk space. The 27-test suite covers reuse, no-network startup, verified extraction/restart, integrity failure, cancellation and retry. GUI, real browser sign-in and desktop-network behavior remain unverified in this restricted environment. See the release guide for package and component smoke boundaries.
+
 ## Linux desktop preview and `.deb` packaging — 2026-11-14
 
 Added an Electron desktop shell on `feature/linux-desktop`, reusing the library, HTTP handler and both assistant adapters. The renderer gets native folder selection, Settings, browser-based ChatGPT sign-in and existing-library import through a narrow main-frame-validated bridge. The private server uses an ephemeral loopback port and per-launch request token. User data/preferences and a separate Codex home live outside the install directory. API keys use asynchronous OS-backed encryption when remembered; session-only keys remain available. Provider changes create distinct immutable OpenWorker identities without changing browser defaults.

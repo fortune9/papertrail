@@ -3,6 +3,11 @@ async function invoke(channel,...args){try{return await ipcRenderer.invoke(chann
 contextBridge.exposeInMainWorld('papertrailDesktop',Object.freeze({
   chooseFolder:()=>invoke('desktop:choose-folder'),
   getSettings:()=>invoke('desktop:get-settings'),
+  getTools:()=>invoke('desktop:get-tools'),
+  detectTools:()=>invoke('desktop:detect-tools'),
+  chooseCodex:()=>invoke('desktop:choose-codex'),
+  installTool:id=>invoke('desktop:install-tool',id),
+  cancelToolDownload:()=>invoke('desktop:cancel-tool-download'),
   getPreferences:()=>invoke('desktop:get-preferences'),
   savePreferences:preferences=>invoke('desktop:save-preferences',preferences),
   saveSettings:settings=>invoke('desktop:save-settings',settings),

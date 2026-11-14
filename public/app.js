@@ -6,15 +6,16 @@ if(desktop){try{const preferences=await desktop.getPreferences();if(preferences.
 const saveDesktopPreferences=()=>desktop?.savePreferences({backend:$('assistant-backend').value,searchOptions:getOptions()}).catch(error=>notify(error.message));
 let query = '', offset = 0, sequence = 0, wasRunning = false, aiAbort;
 let selectedPaper,selectedPaperTitle;
-let assistantStatus,backendInitialized=false;
+let assistantStatus,desktopTools,backendInitialized=false;
 try{const saved=localStorage.getItem('papertrail.assistantBackend');if(['openworker','codex'].includes(saved)){$('assistant-backend').value=saved;backendInitialized=true;}}catch{}
 function updateAssistantControls(){
   const backend=$('assistant-backend').value;
   const selected=assistantStatus?.aiBackends?.find(item=>item.id===backend);
   $('ai-status').textContent=selected?.message || 'Checking assistant connection…';
-  if(desktop && !selected?.configured)$('ai-status').textContent=backend==='codex'?'Sign in with ChatGPT to enable the research companion.':'Open Settings to configure an API provider or Ollama.';
+  if(desktop && !selected?.configured && desktopTools?.tools[backend]?.installed)$('ai-status').textContent=backend==='codex'?'Sign in with ChatGPT to enable the research companion.':'Open Settings to configure an API provider or Ollama.';
+  if(desktop){$('desktop-sign-in').disabled=!desktopTools?.tools.codex.installed || !!desktopTools?.job.running;$('desktop-setup-ai').hidden=false;}
   $('desktop-sign-in').hidden=!desktop || backend!=='codex';
-  $('ask').disabled=!selected?.configured || !!aiAbort;
+  $('ask').disabled=!selected?.configured || !!aiAbort || !!desktopTools?.job.running;
   $('assistant-backend').disabled=!!aiAbort;
   $('assistant-footer').textContent=backend==='codex'?'Search stays offline. When you ask, excerpts go through local Codex to OpenAI using your ChatGPT sign-in.':'Your search works without AI. When enabled, relevant excerpts go to your configured provider.';
 }
@@ -89,6 +90,7 @@ async function status(refreshAI=false) {
   $('roots').replaceChildren(...data.roots.map(root=>{const item=el('div',null,'root-item');item.append(el('div','▱ '+root));const b=el('button','Rescan folder','text-button');b.disabled=!!data.job?.running;b.onclick=async()=>{try{await api('/api/import',{folder:root});await status();}catch(e){notify(e.message);}};item.append(b);return item;}));
   if(!data.roots.length)$('roots').textContent='Your folders will appear here.';
   assistantStatus=data;
+  if(desktop)renderTools(await desktop.getTools());
   if(!backendInitialized){$('assistant-backend').value=data.aiDefaultBackend || 'openworker';backendInitialized=true;}
   updateAssistantControls();
   const job=data.job;$('job').hidden=!job;
@@ -118,12 +120,32 @@ async function renderSignIn(){
   if(!state.running){clearInterval(signInTimer);await status(true);}
 }
 async function signIn(){try{await desktop.startSignIn();$('sign-in-dialog').showModal();await renderSignIn();clearInterval(signInTimer);signInTimer=setInterval(()=>renderSignIn().catch(error=>notify(error.message)),1000);}catch(error){notify(error.message);}}
+function renderTools(state){
+  desktopTools=state;
+  for(const id of ['codex','openworker']){
+    const tool=state.tools[id],name=id==='codex'?'Codex':'OpenWorker';
+    $(id+'-tool-status').textContent=tool.installed?`${name} ${tool.version} · ${tool.source==='existing'?'Existing installation':'Downloaded for Papertrail'} · ${tool.path}`:`${name} is not installed for Papertrail. Available version: ${tool.version}.`;
+    $('download-'+id).disabled=tool.installed || state.job.running;
+  }
+  $('detect-tools').disabled=state.job.running;$('choose-codex').disabled=state.job.running;
+  const job=state.job,progress=job.running && job.received?` ${(job.received/1048576).toFixed(1)}${job.total?' / '+(job.total/1048576).toFixed(1):''} MB`:'';
+  $('tool-download-status').textContent=(job.message || '')+progress;
+  $('cancel-tool-download').hidden=!job.running;
+}
+async function toolAction(callback){
+  try{$('settings-message').textContent='';renderTools(await callback());await status(true);}catch(error){$('settings-message').textContent=error.message;notify(error.message);}
+}
 async function showSettings(){
-  try{const settings=await desktop.getSettings();$('provider-model').value=settings.model;$('provider-url').value=settings.baseUrl;$('provider-api').value=settings.api;$('provider-key').value='';$('provider-key').placeholder=settings.hasApiKey?'A key is already set; leave blank to keep it':'Optional for a local provider';$('remember-key').checked=settings.rememberKey && settings.secureStorageAvailable;$('remember-key').disabled=!settings.secureStorageAvailable;$('clear-key').checked=false;$('settings-storage').textContent=settings.dataDirectory;$('settings-note').textContent=settings.warning || (settings.secureStorageAvailable?'Keys can be remembered using your desktop keyring.':'Desktop keyring unavailable. API keys can be used for this session only.');$('settings-message').textContent='';$('settings-dialog').showModal();}catch(error){notify(error.message);}
+  try{renderTools(await desktop.getTools());const settings=await desktop.getSettings();$('provider-model').value=settings.model;$('provider-url').value=settings.baseUrl;$('provider-api').value=settings.api;$('provider-key').value='';$('provider-key').placeholder=settings.hasApiKey?'A key is already set; leave blank to keep it':'Optional for a local provider';$('remember-key').checked=settings.rememberKey && settings.secureStorageAvailable;$('remember-key').disabled=!settings.secureStorageAvailable;$('clear-key').checked=false;$('settings-storage').textContent=settings.dataDirectory;$('settings-note').textContent=settings.warning || (settings.secureStorageAvailable?'Keys can be remembered using your desktop keyring.':'Desktop keyring unavailable. API keys can be used for this session only.');$('settings-message').textContent='';$('settings-dialog').showModal();}catch(error){notify(error.message);}
 }
 if(desktop){
   $('desktop-settings').hidden=false;$('desktop-settings').onclick=showSettings;
   $('desktop-sign-in').onclick=signIn;
+  $('desktop-setup-ai').onclick=showSettings;
+  $('detect-tools').onclick=()=>toolAction(()=>desktop.detectTools());
+  $('choose-codex').onclick=()=>toolAction(()=>desktop.chooseCodex());
+  for(const id of ['codex','openworker'])$('download-'+id).onclick=()=>toolAction(()=>desktop.installTool(id));
+  $('cancel-tool-download').onclick=()=>toolAction(()=>desktop.cancelToolDownload());
   $('cancel-sign-in').onclick=async()=>{await desktop.cancelSignIn();await renderSignIn();};
   $('close-sign-in').onclick=()=>{$('sign-in-dialog').close();};
   $('close-settings').onclick=()=>{$('provider-key').value='';$('settings-dialog').close();};
