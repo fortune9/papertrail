@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchRanges, searchOptions, tokens } from '../src/search.js';
+import { matchRanges, searchOptions, tokens, parseQuery, searchRanges } from '../src/search.js';
 import { appendHighlighted } from '../public/highlight.js';
 import { Library } from '../src/library.js';
 
@@ -51,4 +51,15 @@ test('library highlights only enabled fields and avoids partial-word clipping in
     const fuzzy=lib.search('transfomer',40,0,{fuzzy:true}).papers[0];assert.equal(fuzzy.highlights.snippet.length,1);
     assert.equal(lib.search('').papers[0].highlights,undefined);
   }finally{lib.db.close();}
+});
+
+
+test('phrase highlighting merges overlaps and preserves original Unicode offsets without fuzzy expansion',()=>{
+  const text='🧬 cafe\u0301 model and café models';
+  const clauses=parseQuery('"café model" café');
+  const ranges=searchRanges(text,clauses,searchOptions({prefix:true,fuzzy:true}));
+  assert.deepEqual(ranges.map(range=>text.slice(range.start,range.end)),['cafe\u0301 model','café']);
+  assert.deepEqual(searchRanges(text,parseQuery('"café model"'),searchOptions({prefix:true,fuzzy:true})).map(range=>text.slice(range.start,range.end)),['cafe\u0301 model']);
+  assert.deepEqual(parseQuery('"unfinished phrase').map(clause=>clause.words),[['unfinished'],['phrase']]);
+  assert.deepEqual(parseQuery('""'),[]);
 });

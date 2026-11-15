@@ -88,3 +88,63 @@ test('download manifest stays pinned to lockfile integrity and matching SDK rele
     assert.equal(pinned.version,id==='codex'?spec.version+'-linux-x64':spec.version);
   }
 });
+
+test('nvm Codex launcher resolves to its native binary with a desktop PATH lacking Node',async()=>{
+  const directory=await fs.mkdtemp('/tmp/papertrail-nvm-tools-');
+  try{
+    const nvm=path.join(directory,'.nvm','versions','node','v24.11.1');
+    const root=path.join(nvm,'lib','node_modules','@openai','codex');
+    const nativePackage=path.join(root,'node_modules','@openai','codex-linux-x64');
+    const native=path.join(nativePackage,'vendor','x86_64-unknown-linux-musl','bin','codex');
+    await fs.mkdir(path.dirname(native),{recursive:true});await fs.mkdir(path.join(root,'bin'),{recursive:true});await fs.mkdir(path.join(nvm,'bin'),{recursive:true});
+    await fs.writeFile(path.join(root,'package.json'),JSON.stringify({name:'@openai/codex',version:'0.169.0'}));
+    await fs.writeFile(path.join(nativePackage,'package.json'),JSON.stringify({name:'@openai/codex',version:'0.169.0-linux-x64'}));
+    await fs.writeFile(path.join(root,'bin','codex.js'),'#!/usr/bin/env node\nthrow new Error("The npm wrapper must not run");\n',{mode:0o755});
+    const launcher=path.join(nvm,'bin','codex');await fs.symlink('../lib/node_modules/@openai/codex/bin/codex.js',launcher);
+    await fs.writeFile(native,'#!/bin/sh\necho "codex-cli 0.169.0"\n',{mode:0o755});
+    const manager=new ToolManager(directory,{env:{HOME:directory,PATH:'/usr/bin:/bin'},runCommand:onlyFixture(directory)});
+    await manager.load();assert.equal(manager.ready.codex.path,native);assert.equal(manager.ready.codex.launcher,launcher);
+    await manager.selectCodex(launcher);
+    const restarted=new ToolManager(directory,{env:{HOME:directory,PATH:'/usr/bin:/bin'},runCommand:onlyFixture(directory)});await restarted.load();
+    assert.equal(restarted.ready.codex.path,native);assert.equal(restarted.ready.codex.launcher,launcher);
+    await assert.rejects(()=>manager.selectCodex('relative/path'),/absolute path/);
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('Codex detection explains a version mismatch instead of silently reporting absence',async()=>{
+  const directory=await fs.mkdtemp('/tmp/papertrail-tool-diagnostics-');
+  try{
+    const bin=path.join(directory,'bin');await fs.mkdir(bin);const executable=path.join(bin,'codex');
+    await fs.writeFile(executable,'#!/bin/sh\necho "codex-cli 0.168.0"\n',{mode:0o755});
+    const manager=new ToolManager(directory,{env:{HOME:directory,PATH:bin},runCommand:onlyFixture(directory)});await manager.load();
+    assert.equal(manager.status().tools.codex.installed,false);assert.match(manager.status().tools.codex.note,/version does not match 0.169.0/);
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('download completion tracks extraction, validation and bounded component activation separately',async()=>{
+  const directory=await fs.mkdtemp('/tmp/papertrail-tool-phases-');
+  try{
+    const fixture=await fixtureArchive(directory,'openworker');const seen=[];let manager;
+    manager=new ToolManager(directory,{env:{HOME:directory,PATH:''},packages:{...TOOL_MANIFEST,openworker:fixture.spec},fetchImpl:async()=>new Response(fixture.bytes),runCommand:(file,args,options)=>{seen.push(manager.job.phase);return onlyFixture(directory)(file,args,options);}});
+    manager.startInstall('openworker');await manager.task;
+    assert.ok(seen.includes('verify'));assert.ok(seen.includes('extract'));assert.ok(seen.includes('validate'));
+    let finish,started;const startedPromise=new Promise(resolve=>{started=resolve;});
+    const activating=manager.activate(()=>{started();return new Promise(resolve=>{finish=resolve;});});
+    await startedPromise;assert.equal(manager.job.phase,'activate');assert.equal(manager.job.running,true);
+    finish();await activating;assert.equal(manager.job.running,false);assert.match(manager.job.message,/model and provider/);
+    await manager.activate(()=>new Promise(()=>{}),{timeoutMs:20});
+    assert.equal(manager.job.running,false);assert.equal(manager.job.error,true);assert.match(manager.job.message,/timed out/);
+    assert.equal(manager.ready.openworker.source,'downloaded');
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('a download stream stuck after its final bytes times out and cleans up instead of spinning forever',async()=>{
+  const directory=await fs.mkdtemp('/tmp/papertrail-tool-stalled-');
+  try{
+    const fixture=await fixtureArchive(directory);
+    const manager=new ToolManager(directory,{env:{HOME:directory,PATH:''},packages:{...TOOL_MANIFEST,codex:fixture.spec},idleTimeoutMs:30,fetchImpl:async()=>new Response(new ReadableStream({start(controller){controller.enqueue(fixture.bytes); /* Simulate a server that never closes the stream. */}}),{headers:{'content-length':String(fixture.bytes.length)}})});
+    manager.startInstall('codex');await manager.task;
+    assert.equal(manager.job.running,false);assert.equal(manager.job.error,true);assert.match(manager.job.message,/stalled/);
+    assert.equal(manager.ready.codex,undefined);assert.equal((await fs.readdir(manager.directory)).length,0);
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});

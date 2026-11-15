@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('papertrailDesktop',Object.freeze({
   getTools:()=>invoke('desktop:get-tools'),
   detectTools:()=>invoke('desktop:detect-tools'),
   chooseCodex:()=>invoke('desktop:choose-codex'),
+  useCodexPath:executable=>invoke('desktop:use-codex-path',executable),
   installTool:id=>invoke('desktop:install-tool',id),
   cancelToolDownload:()=>invoke('desktop:cancel-tool-download'),
   getPreferences:()=>invoke('desktop:get-preferences'),

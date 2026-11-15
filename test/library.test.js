@@ -269,3 +269,100 @@ test('title layout rejects headers, joins multiline titles and decodes embedded 
   const repeated=`<html><title></title><page height="800"><block yMin="50"><word yMin="50" yMax="95">Think again</word></block><block yMin="100"><word yMin="100" yMax="122">A Real Article Title</word></block></page><page height="800"><block yMin="50"><word yMin="50" yMax="95">Think again</word></block></page></html>`;
   assert.equal(titleFromLayout(repeated).title,'A Real Article Title');
 });
+
+test('the first title word matches across case and highlights offset zero through the search API',async()=>{
+  const directory=await fs.mkdtemp('/tmp/papertrail-title-start-'),root=path.join(directory,'papers');
+  const database=path.join(directory,'library.sqlite');let lib;
+  const title='Performance and safety of a multi-cancer early detection test';
+  try{
+    await fs.mkdir(root);await fs.writeFile(path.join(root,'unrelated-filename.pdf'),pdf([title,'Methods and study details'],title));
+    lib=new Library(database);await imported(lib,root);
+    const handler=createHandler(lib,{configured:false});
+    for(const query of ['performance','Performance','PERFORMANCE']){
+      const response=await request(handler,'/api/search?'+new URLSearchParams({q:query,fields:'title',caseInsensitive:'true',fuzzy:'false'}));
+      assert.equal(response.status,200);assert.equal(response.json().total,1);
+      const paper=response.json().papers[0];assert.equal(paper.title,title);assert.deepEqual(paper.matched_fields,['title']);
+      assert.deepEqual(paper.highlights.title,[{start:0,end:11}]);assert.equal(paper.title.slice(0,11),'Performance');
+    }
+    assert.equal((await request(handler,'/api/search?q=performance')).json().total,1);
+    assert.equal(lib.search('performance',40,0,{fields:['title'],caseInsensitive:false}).total,0);
+    assert.equal(lib.search('Performance',40,0,{fields:['title'],caseInsensitive:false}).total,1);
+    assert.equal(lib.search('safety',40,0,{fields:['title']}).total,1);
+    assert.equal(lib.search('perform',40,0,{fields:['title']}).total,0);
+    assert.equal(lib.search('performance',40,0,{fields:['abstract']}).total,0);
+    lib.db.close();lib=new Library(database);
+    assert.equal(lib.search('performance',40,0,{fields:['title']}).total,1);
+  }finally{lib?.db.close();await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('opt-in prefix search matches partial title words with field, case, fuzzy and highlight rules',async()=>{
+  const directory=await fs.mkdtemp('/tmp/papertrail-prefix-'),root=path.join(directory,'papers');let lib;
+  const title='Performance and safety of a multi-cancer early detection test';
+  try{
+    await fs.mkdir(root);
+    await fs.writeFile(path.join(root,'first.pdf'),pdf([title,'Study methods'],title));
+    await fs.writeFile(path.join(root,'second.pdf'),pdf(['Unrelated study','Performance in the body only'],'Unrelated study'));
+    lib=new Library(path.join(directory,'library.sqlite'));await imported(lib,root);
+    const titleOptions={fields:['title'],prefix:true};
+    for(const query of ['p','pe','per','perf','perfo','perform','performance']){
+      const result=lib.search(query,40,0,titleOptions);assert.equal(result.total,1,query);assert.equal(result.papers[0].title,title);
+      assert.deepEqual(result.papers[0].highlights.title,[{start:0,end:11}]);
+    }
+    assert.equal(lib.search('perf',40,0,{fields:['title']}).total,0); // Preserve the original whole-word default.
+    assert.equal(lib.search('formance',40,0,titleOptions).total,0); // Prefixes are not arbitrary substrings.
+    assert.equal(lib.search('perf',40,0,{...titleOptions,caseInsensitive:false}).total,0);
+    assert.equal(lib.search('Perf',40,0,{...titleOptions,caseInsensitive:false}).total,1);
+    assert.equal(lib.search('perf',40,0,{prefix:true,fields:['text']}).total,2);
+    assert.equal(lib.search('perf',40,0,{prefix:true,fields:['abstract']}).total,0);
+    assert.equal(lib.search('performnce',40,0,{...titleOptions,fuzzy:true}).total,1);
+    assert.equal(lib.search('performnce',40,0,titleOptions).total,0);
+    const handler=createHandler(lib,{configured:false});
+    assert.equal((await request(handler,'/api/search?q=perf&fields=title&prefix=true&caseInsensitive=true')).json().total,1);
+    assert.equal((await request(handler,'/api/search?q=perf&fields=title&prefix=false')).json().total,0);
+    assert.equal((await request(handler,'/api/search?q=perf&prefix=invalid')).status,400);
+    const pages=lib.db.prepare('SELECT paper_id,number,text FROM pages ORDER BY paper_id,number').all();
+    lib.db.close();lib=new Library(path.join(directory,'library.sqlite'));
+    assert.equal(lib.search('perf',40,0,titleOptions).total,1);
+    assert.deepEqual(lib.db.prepare('SELECT paper_id,number,text FROM pages ORDER BY paper_id,number').all(),pages);
+    assert.equal(lib.db.prepare('PRAGMA user_version').get().user_version,3);
+  }finally{lib?.db.close();await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('quoted phrases require adjacent ordered whole words in one selected field and page',async()=>{
+  const lib=new Library(':memory:');
+  try{
+    const add=(id,title,pages)=>{
+      lib.db.prepare("INSERT INTO papers(id,path,root,title,mtime,size,pages,status) VALUES(?,?,'/papers',?,0,0,?,'ready')").run(id,`/papers/${id}.pdf`,title,pages.length);
+      for(const [index,text]of pages.entries()){
+        lib.db.prepare('INSERT INTO pages(paper_id,number,text) VALUES(?,?,?)').run(id,index+1,text);
+        lib.db.prepare('INSERT INTO search(title,text,paper_id,page) VALUES(?,?,?,?)').run(title,text,id,index+1);
+      }
+    };
+    add(1,'Foundational model for cancer detection',['Exact phrase study details']);
+    add(2,'Foundational methods for a model',['Foundational methods improve the model']);
+    add(3,'Model foundational applications',['model foundational']);
+    add(4,'Foundational models in oncology',['Foundational models']);
+    add(5,'Foundational',['model in another field']);
+    add(6,'Only body match',['A foundational model supports this study']);
+    add(7,'Phrase across pages',['foundational','model']);
+    const title={fields:['title']},phrase='"foundational model"';
+    assert.deepEqual(lib.search(phrase,40,0,title).papers.map(p=>p.id),[1]);
+    assert.equal(lib.search('foundational model',40,0,title).total,5);
+    assert.equal(lib.search('“foundational model”',40,0,title).total,1);
+    assert.equal(lib.search('"foundational-model"',40,0,title).total,1);
+    assert.equal(lib.search(phrase,40,0,{...title,caseInsensitive:false}).total,0);
+    assert.equal(lib.search('"Foundational model"',40,0,{...title,caseInsensitive:false}).total,1);
+    assert.equal(lib.search('"foundational mod"',40,0,{...title,prefix:true,fuzzy:true}).total,0);
+    assert.equal(lib.search('"foundatinal model"',40,0,{...title,prefix:true,fuzzy:true}).total,0);
+    assert.deepEqual(lib.search(phrase,40,0,{fields:['title','text']}).papers.map(p=>p.id).sort((a,b)=>a-b),[1,6]);
+    assert.deepEqual(lib.search(phrase,40,0,{fields:['text']}).papers.map(p=>p.id),[6]);
+    assert.equal(lib.search(phrase,40,0,{fields:['authors']}).total,0);
+    assert.deepEqual(lib.search(phrase+' oncology',40,0,title).papers.map(p=>p.id).sort((a,b)=>a-b),[1,4]);
+    const result=lib.search(phrase,40,0,title).papers[0];
+    assert.deepEqual(result.highlights.title,[{start:0,end:18}]);assert.equal(result.snippet.slice(result.highlights.snippet[0].start,result.highlights.snippet[0].end),'Foundational model');
+    const handler=createHandler(lib,{configured:false});
+    assert.equal((await request(handler,'/api/search?'+new URLSearchParams({q:phrase,fields:'title'}))).json().total,1);
+    const tooLong='"'+Array(25).fill('word').join(' ')+'"';
+    const invalid=await request(handler,'/api/search?'+new URLSearchParams({q:tooLong}));assert.equal(invalid.status,400);assert.match(invalid.json().error,/24 words/);
+  }finally{lib.db.close();}
+});

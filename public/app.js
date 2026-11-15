@@ -21,9 +21,9 @@ function updateAssistantControls(){
 }
 $('assistant-backend').onchange=()=>{try{localStorage.setItem('papertrail.assistantBackend',$('assistant-backend').value);}catch{}saveDesktopPreferences();$('answer').textContent='';$('sources').replaceChildren();updateAssistantControls();};
 $('check-ai').onclick=async()=>{const button=$('check-ai');button.disabled=true;try{await status(true);}catch(e){notify(e.message);}finally{button.disabled=false;}};
-const getOptions=()=>({caseInsensitive:$('case-insensitive').checked,fuzzy:$('fuzzy').checked,fields:[...$('search-fields').querySelectorAll('input:checked')].map(input=>input.value)});
-function optionHint(){const o=getOptions();$('search-hint').textContent=!o.fields.length?'Select at least one search field.':`${o.fuzzy?'Fuzzy: one spelling edit for words of 5+ characters':'Whole words'} · ${o.caseInsensitive?'Case insensitive':'Case sensitive'} · Any term in selected fields. Abstracts/authors are detected; review in paper details.`;}
-try{const saved=JSON.parse(localStorage.getItem('papertrail.searchOptions'));if(saved){$('case-insensitive').checked=saved.caseInsensitive!==false;$('fuzzy').checked=saved.fuzzy===true;if(Array.isArray(saved.fields))for(const input of $('search-fields').querySelectorAll('input'))input.checked=saved.fields.includes(input.value);}}catch{}
+const getOptions=()=>({caseInsensitive:$('case-insensitive').checked,fuzzy:$('fuzzy').checked,prefix:$('prefix').checked,fields:[...$('search-fields').querySelectorAll('input:checked')].map(input=>input.value)});
+function optionHint(){const o=getOptions();$('search-hint').textContent=!o.fields.length?'Select at least one search field.':`${o.prefix?(o.fuzzy?'Word beginnings + fuzzy spelling':'Word beginnings (perf → Performance)'):o.fuzzy?'Fuzzy: one spelling edit for words of 5+ characters':'Whole words'} · ${o.caseInsensitive?'Case insensitive':'Case sensitive'} · Any unquoted term; double quotes match an exact phrase. Abstracts/authors are detected; review in paper details.`;}
+try{const saved=JSON.parse(localStorage.getItem('papertrail.searchOptions'));if(saved){$('case-insensitive').checked=saved.caseInsensitive!==false;$('fuzzy').checked=saved.fuzzy===true;$('prefix').checked=saved.prefix===true;if(Array.isArray(saved.fields))for(const input of $('search-fields').querySelectorAll('input'))input.checked=saved.fields.includes(input.value);}}catch{}
 optionHint();
 async function api(url, data) {
   const res = await fetch(url,data ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)} : {});
@@ -66,7 +66,7 @@ function card(paper) {
 async function search(append=false) {
   const current=++sequence;if(!append)offset=0;
   try {
-    const options=getOptions(),params=new URLSearchParams({q:query,offset,caseInsensitive:options.caseInsensitive,fuzzy:options.fuzzy,fields:options.fields.join(',')});
+    const options=getOptions(),params=new URLSearchParams({q:query,offset,caseInsensitive:options.caseInsensitive,fuzzy:options.fuzzy,prefix:options.prefix,fields:options.fields.join(',')});
     const data=await api(`/api/search?${params}`);if(current!==sequence)return;
     if(!append)$('results').replaceChildren();
     $('results-heading').textContent=query?'Search results':'All papers';
@@ -90,7 +90,6 @@ async function status(refreshAI=false) {
   $('roots').replaceChildren(...data.roots.map(root=>{const item=el('div',null,'root-item');item.append(el('div','▱ '+root));const b=el('button','Rescan folder','text-button');b.disabled=!!data.job?.running;b.onclick=async()=>{try{await api('/api/import',{folder:root});await status();}catch(e){notify(e.message);}};item.append(b);return item;}));
   if(!data.roots.length)$('roots').textContent='Your folders will appear here.';
   assistantStatus=data;
-  if(desktop)renderTools(await desktop.getTools());
   if(!backendInitialized){$('assistant-backend').value=data.aiDefaultBackend || 'openworker';backendInitialized=true;}
   updateAssistantControls();
   const job=data.job;$('job').hidden=!job;
@@ -124,11 +123,12 @@ function renderTools(state){
   desktopTools=state;
   for(const id of ['codex','openworker']){
     const tool=state.tools[id],name=id==='codex'?'Codex':'OpenWorker';
-    $(id+'-tool-status').textContent=tool.installed?`${name} ${tool.version} · ${tool.source==='existing'?'Existing installation':'Downloaded for Papertrail'} · ${tool.path}`:`${name} is not installed for Papertrail. Available version: ${tool.version}.`;
+    $(id+'-tool-status').textContent=tool.installed?`${name} ${tool.version} · ${tool.source==='existing'?'Existing installation':'Downloaded for Papertrail'} · ${tool.launcher || tool.path}${id==='openworker'?' · Configure the model and provider below to enable answers.':''}`:`${name} is not installed for Papertrail. Available version: ${tool.version}. ${tool.note || ''}`;
     $('download-'+id).disabled=tool.installed || state.job.running;
+    $('download-'+id).textContent=tool.installed?name+' installed':'Download '+name;
   }
-  $('detect-tools').disabled=state.job.running;$('choose-codex').disabled=state.job.running;
-  const job=state.job,progress=job.running && job.received?` ${(job.received/1048576).toFixed(1)}${job.total?' / '+(job.total/1048576).toFixed(1):''} MB`:'';
+  $('detect-tools').disabled=state.job.running;$('choose-codex').disabled=state.job.running;$('use-codex-path').disabled=state.job.running;$('codex-executable-path').disabled=state.job.running;
+  const job=state.job,progress=job.running && job.phase==='download' && job.received?` ${(job.received/1048576).toFixed(1)}${job.total?' / '+(job.total/1048576).toFixed(1):''} MB`:'';
   $('tool-download-status').textContent=(job.message || '')+progress;
   $('cancel-tool-download').hidden=!job.running;
 }
@@ -136,7 +136,7 @@ async function toolAction(callback){
   try{$('settings-message').textContent='';renderTools(await callback());await status(true);}catch(error){$('settings-message').textContent=error.message;notify(error.message);}
 }
 async function showSettings(){
-  try{renderTools(await desktop.getTools());const settings=await desktop.getSettings();$('provider-model').value=settings.model;$('provider-url').value=settings.baseUrl;$('provider-api').value=settings.api;$('provider-key').value='';$('provider-key').placeholder=settings.hasApiKey?'A key is already set; leave blank to keep it':'Optional for a local provider';$('remember-key').checked=settings.rememberKey && settings.secureStorageAvailable;$('remember-key').disabled=!settings.secureStorageAvailable;$('clear-key').checked=false;$('settings-storage').textContent=settings.dataDirectory;$('settings-note').textContent=settings.warning || (settings.secureStorageAvailable?'Keys can be remembered using your desktop keyring.':'Desktop keyring unavailable. API keys can be used for this session only.');$('settings-message').textContent='';$('settings-dialog').showModal();}catch(error){notify(error.message);}
+  try{renderTools(await desktop.getTools());$('codex-executable-path').value=desktopTools.tools.codex.launcher || desktopTools.tools.codex.path || '';const settings=await desktop.getSettings();$('provider-model').value=settings.model;$('provider-url').value=settings.baseUrl;$('provider-api').value=settings.api;$('provider-key').value='';$('provider-key').placeholder=settings.hasApiKey?'A key is already set; leave blank to keep it':'Optional for a local provider';$('remember-key').checked=settings.rememberKey && settings.secureStorageAvailable;$('remember-key').disabled=!settings.secureStorageAvailable;$('clear-key').checked=false;$('settings-storage').textContent=settings.dataDirectory+' · Desktop server: '+settings.serverAddress;$('settings-note').textContent=settings.warning || (settings.secureStorageAvailable?'Keys can be remembered using your desktop keyring.':'Desktop keyring unavailable. API keys can be used for this session only.');$('settings-message').textContent='';$('settings-dialog').showModal();}catch(error){notify(error.message);}
 }
 if(desktop){
   $('desktop-settings').hidden=false;$('desktop-settings').onclick=showSettings;
@@ -144,6 +144,10 @@ if(desktop){
   $('desktop-setup-ai').onclick=showSettings;
   $('detect-tools').onclick=()=>toolAction(()=>desktop.detectTools());
   $('choose-codex').onclick=()=>toolAction(()=>desktop.chooseCodex());
+  $('use-codex-path').onclick=()=>toolAction(()=>desktop.useCodexPath($('codex-executable-path').value.trim()));
+  let readingTools=false;
+  const refreshTools=async()=>{if(readingTools)return;readingTools=true;try{renderTools(await desktop.getTools());updateAssistantControls();}catch(error){notify(error.message);}finally{readingTools=false;}};
+  await refreshTools();setInterval(refreshTools,750);
   for(const id of ['codex','openworker'])$('download-'+id).onclick=()=>toolAction(()=>desktop.installTool(id));
   $('cancel-tool-download').onclick=()=>toolAction(()=>desktop.cancelToolDownload());
   $('cancel-sign-in').onclick=async()=>{await desktop.cancelSignIn();await renderSignIn();};

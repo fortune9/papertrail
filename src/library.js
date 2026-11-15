@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { extractMetadata } from './metadata.js';
 import { readPaperTitle } from './titles.js';
-import { searchOptions, tokens, oneEdit, termMatches, matchRanges } from './search.js';
+import { searchOptions, parseQuery, oneEdit, searchRanges } from './search.js';
 const exec = promisify(execFile);
 
 export class Library {
@@ -70,18 +70,22 @@ export class Library {
   search(query = '', limit = 40, offset = 0, input = {}) {
     const options = searchOptions(input);
     if (!options.fields.length) return { total: 0, papers: [] };
-    const words = tokens(query).slice(0, 24);
-    if (!words.length) return { total: this.db.prepare('SELECT count(*) n FROM papers').get().n,
+    const clauses = parseQuery(query);
+    if (!clauses.length) return { total: this.db.prepare('SELECT count(*) n FROM papers').get().n,
       papers: this.db.prepare('SELECT * FROM papers ORDER BY indexed DESC,id DESC LIMIT ? OFFSET ?').all(limit, offset) };
-    // Match whole tokens: transformer must not match transformation or transformed.
-    const expanded = new Set(words.map(w=>w.toLowerCase()));
+    // Whole words are the default. Optional prefix matching is explicit and does not change the stored index.
+    const words=clauses.filter(clause=>clause.type==='word').flatMap(clause=>clause.words);
+    const originals = new Set(words.map(w=>w.toLowerCase()));
+    const expanded = new Set(originals);
     if (options.fuzzy) for (const word of words) {
       const lower=word.toLowerCase(), length=[...lower].length;
       if (length<5) continue;
       const vocabulary=this.db.prepare(`SELECT DISTINCT term FROM search_vocab WHERE col IN (${options.fields.map(()=>'?').join(',')}) AND length(term) BETWEEN ? AND ? ORDER BY term`).all(...options.fields,length-1,length+1);
       for (const {term} of vocabulary.filter(v=>oneEdit(lower,v.term)).slice(0,32)) expanded.add(term);
     }
-    const match = `{${options.fields.join(' ')}} : (${[...expanded].map(w => `"${w}"`).join(' OR ')})`;
+    const expressions=[...expanded].map(w => `"${w}"${options.prefix && originals.has(w)?'*':''}`);
+    for(const clause of clauses.filter(clause=>clause.type==='phrase'))expressions.push(`"${clause.words.map(word=>word.toLowerCase()).join(' ')}"`);
+    const match = `{${options.fields.join(' ')}} : (${expressions.join(' OR ')})`;
     const rows = this.db.prepare(`SELECT p.*, search.page match_page,
       search.text matched_text, search.abstract matched_abstract, search.authors matched_authors,
       snippet(search,-1,'','',' … ',48) snippet, bm25(search,5,1,0,0,3,3) score
@@ -89,7 +93,8 @@ export class Library {
     const grouped = new Map();
     for (const row of rows) {
       const content={title:row.title,text:row.matched_text,abstract:row.matched_abstract,authors:row.matched_authors};
-      const fields=options.fields.filter(field=>tokens(content[field]).some(token=>words.some(word=>termMatches(word,token,options))));
+      const ranges=Object.fromEntries(options.fields.map(field=>[field,searchRanges(content[field],clauses,options)]));
+      const fields=options.fields.filter(field=>ranges[field].length);
       delete row.matched_text;delete row.matched_abstract;delete row.matched_authors;
       if (!fields.length) continue;
       row.matched_fields=fields;
@@ -97,9 +102,9 @@ export class Library {
       // Use an excerpt containing a verified matching token in the selected field.
       const field=fields.find(f=>f!=='title') || fields[0];
       const source=(content[field] || '').normalize('NFC');
-      const occurrence=matchRanges(source,words,options)[0];
+      const occurrence=searchRanges(source,clauses,options)[0];
       if (occurrence) {
-        let start=Math.max(0,occurrence.start-100),end=Math.min(source.length,occurrence.start+500);
+        let start=Math.max(0,occurrence.start-100),end=Math.max(occurrence.end,Math.min(source.length,occurrence.start+500));
         // Never turn a clipped word into a different apparent whole-word hit.
         for(const token of source.matchAll(/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/gu)) {
           const tokenEnd=token.index+token[0].length;
@@ -108,7 +113,7 @@ export class Library {
         }
         row.snippet=(start?'… ':'')+source.slice(start,end)+(source.length>end?' …':'');
       }
-      row.highlights={title:fields.includes('title')?matchRanges(row.title,words,options):[],snippet:matchRanges(row.snippet,words,options)};
+      row.highlights={title:fields.includes('title')?ranges.title:[],snippet:searchRanges(row.snippet,clauses,options)};
       if (!grouped.has(row.id)) grouped.set(row.id, row);
     }
     const papers = [...grouped.values()];

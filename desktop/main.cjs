@@ -41,7 +41,7 @@ app.whenReady().then(async()=>{
     const identity=createHash('sha256').update(JSON.stringify([env.AI_MODEL,env.AI_BASE_URL,env.AI_API])).digest('hex').slice(0,16);
     return new Assistant(directory,{env,executable:tools.ready.openworker.path,agentName:`desktop-reader-v1-${identity}`,providerName:`DesktopProvider-${identity}`});
   };
-  const codexEnvironment=()=>({...process.env,CODEX_HOME:codexHome,CODEX_PATH:tools.ready.codex?.path,PAPERTRAIL_DESKTOP:'1'});
+  const codexEnvironment=()=>({...process.env,CODEX_HOME:codexHome,CODEX_PATH:tools.ready.codex?.path,PATH:[path.dirname(tools.ready.codex?.launcher || tools.ready.codex?.path || '/usr/bin/codex'),process.env.PATH || '/usr/bin:/bin'].join(path.delimiter),PAPERTRAIL_DESKTOP:'1'});
   const makeCodex=()=>tools.ready.codex?new CodexAssistant({env:codexEnvironment()}):missingAssistant('codex');
   service=new AssistantService(directory,{openworker:makeOpenWorker(),codex:makeCodex(),defaultBackend:'codex'});
   const resetAssistants=async()=>{
@@ -63,11 +63,11 @@ app.whenReady().then(async()=>{
     const result=await dialog.showOpenDialog(window,{title:'Add a PDF folder',properties:['openDirectory']});
     return result.canceled?null:result.filePaths[0];
   });
-  handle('desktop:get-settings',async()=>({...await settings.publicSettings(),dataDirectory:directory,version:app.getVersion()}));
+  handle('desktop:get-settings',async()=>({...await settings.publicSettings(),dataDirectory:directory,version:app.getVersion(),serverAddress:backend.url}));
   handle('desktop:get-preferences',()=>preferences.value);
   handle('desktop:save-preferences',input=>preferences.save(input));
   handle('desktop:save-settings',async input=>{
-    if(service.busy)throw new Error('Stop the current answer before changing provider settings.');
+    if(service.busy)throw new Error('Wait for the current answer or AI setup to finish before changing provider settings.');
     service.reconfiguring=true;
     try{const result=await settings.save(input);await service.engines.openworker.shutdown();service.engines.openworker=makeOpenWorker();return result;}
     finally{service.reconfiguring=false;}
@@ -84,16 +84,20 @@ app.whenReady().then(async()=>{
   });
   handle('desktop:choose-codex',async()=>{
     toolsAvailable();
-    const choice=await dialog.showOpenDialog(window,{title:'Select an existing Codex executable',properties:['openFile']});
+    const choice=await dialog.showOpenDialog(window,{title:'Select an existing Codex executable',defaultPath:tools.ready.codex?.launcher || tools.ready.codex?.path || path.join(app.getPath('home'),'.nvm'),properties:['openFile','showHiddenFiles']});
     if(choice.canceled)return tools.status();
     toolsAvailable();service.reconfiguring=true;
     try{await tools.selectCodex(choice.filePaths[0]);await resetAssistants();return tools.status();}finally{service.reconfiguring=false;}
+  });
+  handle('desktop:use-codex-path',async executable=>{
+    toolsAvailable();service.reconfiguring=true;
+    try{await tools.selectCodex(executable);await resetAssistants();return tools.status();}finally{service.reconfiguring=false;}
   });
   handle('desktop:install-tool',id=>{
     toolsAvailable();tools.spec(id);
     if(tools.ready[id])return tools.status();
     const state=tools.startInstall(id);service.reconfiguring=true;
-    tools.task=tools.task.then(()=>resetAssistants()).catch(()=>{tools.job={...tools.job,error:true,message:'The component was downloaded, but could not be connected. Restart Papertrail.'};}).finally(()=>{service.reconfiguring=false;});
+    tools.task=tools.task.then(()=>tools.activate(()=>resetAssistants())).finally(()=>{service.reconfiguring=false;});
     return state;
   });
   handle('desktop:cancel-tool-download',()=>tools.cancel());

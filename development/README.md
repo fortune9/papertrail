@@ -8,7 +8,7 @@ development/
 ├── architecture/
 │   ├── overview.md                   Processes, components and data flow
 │   ├── indexing.md                   Folder discovery and PDF extraction
-│   ├── search.md                     Token matching, ranking and migration
+│   ├── search.md                     Whole words, prefixes, phrases, ranking and migration
 │   ├── assistant.md                  OpenWorker lifecycle and shared retrieval
 │   ├── codex.md                      Local Codex SDK backend and authentication
 │   └── desktop.md                    Electron shell, optional AI tools, storage, IPC and GUI sign-in

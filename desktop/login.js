@@ -8,7 +8,7 @@ export function allowedSignInUrl(value){
 // Use Codex's structured login protocol. The app opens exactly the returned
 // authorization URL; it never scrapes terminal text or handles tokens itself.
 export class DesktopLogin {
-  constructor(executable,env,openExternal,{spawnProcess=spawn,version='1.2.0'}={}){this.executable=executable;this.env=env;this.openExternal=openExternal;this.spawnProcess=spawnProcess;this.version=version;this.state={running:false,message:'Sign in to use your ChatGPT allowance.'};}
+  constructor(executable,env,openExternal,{spawnProcess=spawn,version='1.3.0'}={}){this.executable=executable;this.env=env;this.openExternal=openExternal;this.spawnProcess=spawnProcess;this.version=version;this.state={running:false,message:'Sign in to use your ChatGPT allowance.'};}
   status(){return {...this.state};}
   async openPage(){if(!this.state.running || !allowedSignInUrl(this.state.url))throw new Error('Start sign-in first.');await this.openExternal(this.state.url);}
   start(){

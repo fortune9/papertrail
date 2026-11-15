@@ -33,7 +33,7 @@ return async (req, res) => {
       const q = (url.searchParams.get('q') || '').slice(0,1000);
       const offset = Math.max(0, Math.min(Number(url.searchParams.get('offset')) || 0, 100000));
       const parseBoolean=(name)=>{const value=url.searchParams.get(name);if(value===null)return undefined;if(!['true','false'].includes(value))throw new Error(`Invalid ${name} option.`);return value==='true';};
-      const options=searchOptions({caseInsensitive:parseBoolean('caseInsensitive'),fuzzy:parseBoolean('fuzzy'),
+      const options=searchOptions({caseInsensitive:parseBoolean('caseInsensitive'),fuzzy:parseBoolean('fuzzy'),prefix:parseBoolean('prefix'),
         ...(url.searchParams.has('fields')?{fields:url.searchParams.get('fields').split(',').filter(Boolean)}:{})});
       return json(res,200,library.search(q,40,offset,options));
     }

@@ -1,5 +1,27 @@
 # Implementation change record
 
+## Prefix and quoted-phrase search — 2026-11-14
+
+The desktop report was clarified: partial input such as `perf` returned no result until `performance` was complete. That followed the earlier intentional whole-word contract. Version 1.3.0 adds an opt-in Prefix search checkbox, preserving whole-word defaults while allowing incremental word beginnings. It respects field/case selection, combines with fuzzy alternatives for unquoted words and highlights the matching source word. Desktop/browser preferences persist the option.
+
+Paired straight/curly double quotes now create exact consecutive-token phrases, instead of OR-ing each quoted word. Phrases stay within a selected field/page, respect case and ignore prefix/fuzzy expansion. Unquoted words and whole phrases combine with OR. Query parsing rejects more than 24 words rather than truncating a phrase, and treats unfinished quotes as ordinary text during typing. Phrase highlighting merges overlapping ranges and snippets retain the complete first matching phrase.
+
+No schema migration, FTS rebuild, PDF reimport or stored-data change is needed. Regression coverage includes the actual desktop renderer/controller routed through HTTP/SQLite, incremental prefixes, restored options, stale responses, quoted query preservation, phrase order/adjacency/case/field/page isolation, Unicode highlights and whole-word compatibility.
+
+## Beginning-of-title search investigation — 2026-11-14
+
+Added an exact-title PDF/import/API regression for “Performance and safety of a multi-cancer early detection test”. The existing matcher passes case-insensitive lowercase/original/uppercase queries, highlights the first word at offset zero and preserves matching after reopening the database. A copy of the actual desktop library also returns the reported paper. The later clarification identified incomplete-word input as the issue; see the prefix/phrase release above. No stored index change was needed. Case-sensitive lowercase exclusion remains intentional. All 32 tests pass; the later prefix-search clarification resolves the original discrepancy.
+
+## nvm Codex discovery and AI setup progress — 2026-11-14
+
+Version 1.2.1 fixes desktop detection of Codex installed under nvm. The old detector searched only PATH/common bins, and the npm launcher’s `/usr/bin/env node` failed when GUI PATH omitted nvm. Detection now scans nvm versions and resolves the installed official npm launcher to its native platform executable. Existing-but-incompatible candidates show diagnostics. A full-path field bypasses Linux file-picker hidden-folder limitations.
+
+The reported OpenWorker executable was already fully extracted and passed its version check, so an indefinitely stuck download was not reproduced from the on-disk state. Setup now separates download/extraction/validation/activation stages, bounds network inactivity and activation, and reports provider configuration as a separate next step. Component status polls independently of HTTP/Codex-status checks. The desktop’s OS-assigned loopback port is shown in Settings; a source server on port 3210 can coexist using the default separate data directories. No database migration, reindex, SDK upgrade or credential copy is required.
+
+Building from the Windows-mounted working checkout also exposed mode-0777 staging directories rejected by dpkg-deb. Packaging now stages under the native Linux temporary directory, normalizes file/directory/executable modes and rejects world-writable archive entries.
+
+Regression coverage includes nvm symlink/native resolution with no Node on PATH, mismatch diagnostics, activation timeout and a stream that never closes after its last bytes. The actual user-installed Codex and previously downloaded OpenWorker passed version checks with a minimal desktop PATH using a disposable Codex home; graphical setup/sign-in still needs validation in a normal desktop session.
+
 ## Smaller installer and optional AI components — 2026-11-14
 
 The 1.1.0 installer bundled 404 MiB of native Codex tools and 33 MiB of OpenWorker alongside Electron. Version 1.2.0 excludes both native AI packages and the Codex JavaScript wrapper; npm was already excluded. Offline startup/indexing/search are independent of AI availability. Settings detects or selects an existing Codex 0.169.0 without copying/modifying it, or explicitly downloads pinned native packages into user data with SHA-512 verification, progress, cancellation and staging cleanup. Authentication remains separate from the terminal login. Other Codex versions are not silently treated as compatible with the pinned SDK. API settings can be saved before downloading OpenWorker.
