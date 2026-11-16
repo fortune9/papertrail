@@ -16,6 +16,7 @@ Implementation documents must be updated in the same change as the behavior they
 | Environment requirements or commands | [Verification](operations/verification.md), root README and `.env.example` |
 | Any user-visible behavior correction | [Change record](changes.md), with cause, fix, migration impact and evidence |
 | Desktop startup, settings, login, storage or IPC | [Desktop architecture](architecture/desktop.md), [HTTP and UI](reference/http-and-ui.md), desktop regression tests |
+| CI triggers, release assets, publication or version-bump policy | [GitHub release automation](operations/github-release.md), root README, release regression tests |
 | Installer, Electron version, native helper layout or system dependencies | [Linux release guide](operations/linux-release.md), runtime/optional-tool checksum manifests, packaged smoke and archive checks |
 
 Keep the [documentation map](README.md) current when adding, moving or removing pages. Link relative to each document's own directory. Prefer explaining the source's purpose, data flow and constraints over copying entire implementations into prose.

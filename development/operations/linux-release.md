@@ -13,7 +13,11 @@ npm run build:linux
 npm run check:package
 ```
 
-Output: `dist/papertrail_1.3.0_amd64.deb` (approximately 89 MiB in the development build, compared with 206 MiB before removing native AI tools). The root tree is staged in a temporary native Linux directory under `os.tmpdir()` and removed after the build. This avoids Debian control-directory permission failures in Windows-mounted checkouts. File modes are normalized to 0644, directory modes to 0755, with executable launchers and the sandbox helper set explicitly; the archive check rejects world-writable entries. If TMPDIR points to a Windows mount without Linux permissions, set it to a native Linux temporary directory before building. Build caches are under `.build/`; both directories are ignored by Git. `ELECTRON_ARCHIVE=/path/to/electron-v45.3.2-linux-x64.zip` uses an existing archive, still enforcing the pinned checksum. Developer preview uses `npm run desktop`; it downloads the same runtime when necessary. Do not disable Chromium's sandbox in a distributed launcher.
+Output: `dist/papertrail_<package-version>_amd64.deb` (approximately 89 MiB in the development build, compared with 206 MiB before removing native AI tools). The root tree is staged in a temporary native Linux directory under `os.tmpdir()` and removed after the build. This avoids Debian control-directory permission failures in Windows-mounted checkouts. File modes are normalized to 0644, directory modes to 0755, with executable launchers and the sandbox helper set explicitly; the archive check rejects world-writable entries. If TMPDIR points to a Windows mount without Linux permissions, set it to a native Linux temporary directory before building. Build caches are under `.build/`; both directories are ignored by Git. `ELECTRON_ARCHIVE=/path/to/electron-v45.3.2-linux-x64.zip` uses an existing archive, still enforcing the pinned checksum. Developer preview uses `npm run desktop`; it downloads the same runtime when necessary. Do not disable Chromium's sandbox in a distributed launcher.
+
+## GitHub builds and releases
+
+The [release workflow](github-release.md) uses these same build/check commands on PRs targeting main and pushes to main. PRs upload artifacts; only successful main pushes publish GitHub Releases. The current automation change bumps the app to 1.4.0. Every subsequent change declares an appropriate patch/minor/major bump before merging; CI checks the increase and lockfile synchronization. See the linked guide for multi-platform asset collection, checksums, permissions and retries.
 
 ## What is packaged
 

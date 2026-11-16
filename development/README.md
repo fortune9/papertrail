@@ -17,7 +17,8 @@ development/
 │   └── http-and-ui.md                Routes and browser behavior
 ├── operations/
 │   ├── verification.md               Running, testing and troubleshooting
-│   └── linux-release.md              Building/qualifying the Linux .deb
+│   ├── linux-release.md              Building/qualifying the Linux .deb
+│   └── github-release.md             Main/PR CI, version policy and release assets
 ├── maintenance.md                    How to keep these documents current
 └── changes.md                        Behavior changes and supporting evidence
 ```
@@ -33,6 +34,7 @@ development/
 | What does the AI receive? | [Assistant implementation](architecture/assistant.md) |
 | How does ChatGPT sign-in work with local Codex? | [Codex backend](architecture/codex.md) |
 | How does the installable desktop app work? | [Desktop architecture](architecture/desktop.md) |
+| How do GitHub builds, releases and version bumps work? | [Release automation](operations/github-release.md) |
 | How do I build and verify its Linux installer? | [Linux release guide](operations/linux-release.md) |
 | How do the browser and server communicate? | [HTTP and UI reference](reference/http-and-ui.md) |
 | What was tested, and how can I reproduce it? | [Verification](operations/verification.md) |

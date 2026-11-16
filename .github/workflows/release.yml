@@ -1,0 +1,108 @@
+name: Build and release Papertrail
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Refresh PR builds while allowing each distinct main commit to finish its release.
+concurrency:
+  group: papertrail-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-24.04
+    steps:
+      - name: Check out the tested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Require an explicit version bump
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/release-version.mjs check "$BASE_SHA"
+      - name: Install Linux build and smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils unzip dpkg tar xdg-utils libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1
+      - name: Install pinned application dependencies
+        run: npm ci
+      - name: Run regression tests
+        run: npm test
+      - name: Build and inspect Linux installer
+        run: |
+          npm run build:linux
+          npm run check:package
+      - name: Check the extracted installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p 'require("./package.json").version')
+          extracted=$(mktemp -d)
+          trap 'rm -rf "$extracted"' EXIT
+          dpkg-deb -x "dist/papertrail_${version}_amd64.deb" "$extracted"
+          ELECTRON_RUN_AS_NODE=1 "$extracted/opt/papertrail/papertrail" \
+            "$extracted/opt/papertrail/resources/app/desktop/smoke.mjs"
+      - name: Stage versioned release assets and checksums
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: node scripts/release-assets.mjs stage "$BUILD_TARGET"
+      - name: Upload PR/main build artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: papertrail-${{ matrix.target }}
+          path: release-assets/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+          overwrite: true
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download this run's successful platform builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: papertrail-*
+          path: incoming/
+      - name: Verify and collect all platform assets
+        run: node scripts/release-assets.mjs collect
+      - name: Upload assets to a draft and publish when complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish-release.mjs

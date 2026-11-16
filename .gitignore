@@ -8,3 +8,5 @@ data/
 *.pdf
 .build/
 dist/
+release-assets/
+incoming/

@@ -6,7 +6,7 @@ A local research paper library. Recursively import text-based PDFs, store extrac
 
 The first desktop installer targets **Ubuntu/Debian Linux x64** (Ubuntu 22.04+ / Debian 12+ with a graphical desktop). Windows and macOS installers are not implemented yet. This is a preview build: packaged components are checked, but a normal desktop installation and complete graphical sign-in still need verification outside the restricted development session.
 
-1. Download the provided `papertrail_1.3.0_amd64.deb` installer and open it with your system's graphical package installer.
+1. Download the Linux `.deb` installer from [GitHub Releases](https://github.com/fortune9/papertrail/releases/latest) and open it with your system's graphical package installer.
 2. Choose **Install**. It installs Papertrail with Electron and asks the package manager to install Poppler and desktop libraries. Codex, OpenWorker native tools and npm are not included in the base installer. An internet connection may be needed to obtain missing system dependencies. Git, npm and a separate Node/Codex installation are not needed by end users.
 3. Open **Papertrail** from the applications menu.
 4. Click **Add a folder**, choose your PDF directory and confirm **Index folder**.
@@ -19,7 +19,7 @@ Desktop data is stored in the operating system's application-data directory (nor
 
 A source/browser server on `http://127.0.0.1:3210` can run alongside the desktop app: the desktop uses a separate automatically assigned loopback port and its own data directory by default. Settings shows the desktop server address. Avoid deliberately configuring both versions to write the same database simultaneously.
 
-There is no automatic updater in this preview. Install a newer `.deb` when supplied. No public binary release has been published by this development task; maintainers can produce the installer using [the Linux build guide](development/operations/linux-release.md).
+There is no automatic updater in this preview. Install a newer `.deb` from Releases when available. GitHub Actions tests/builds PRs targeting `main` and publishes a release after each successful, version-bumped push to `main`. PR builds are downloadable from the Actions run. The first automated release will appear after this workflow is pushed and succeeds. Maintainers can also use [the Linux build guide](development/operations/linux-release.md). See [release automation and versioning](development/operations/github-release.md) for patch/minor/major bumps and future assets.
 
 ## Run locally from source
 

@@ -1,5 +1,11 @@
 # Implementation change record
 
+## GitHub build/release automation and version policy — 2026-11-14
+
+Version 1.4.0 is a minor bump for the new release capability. Added a main-push/main-targeting-PR workflow: Node 24 regression tests, Linux x64 packaging/inspection, extracted Electron smoke checks and downloadable build artifacts. Only successful main pushes enter a write-enabled release job. Explicit version increases against the PR base/previous main commit and package/lock synchronization are enforced; maintainers choose patch/minor/major through a local helper. No commit-message inference or automatic version commits are used.
+
+Build manifests bind assets to their version/source SHA and checksums. The shared collector supports future platform distribution files, rejects source mismatches/duplicates/corruption and produces release-wide SHA256SUMS. Publication creates/resumes a draft, verifies all uploads, then publishes an exact-source tag with generated notes. Published releases are preserved on reruns; tag collisions fail. Actions are pinned to full SHAs, checkout credentials are not persisted, and PRs have no publishing step. No GitHub workflow or remote release was executed from this local session.
+
 ## Prefix and quoted-phrase search — 2026-11-14
 
 The desktop report was clarified: partial input such as `perf` returned no result until `performance` was complete. That followed the earlier intentional whole-word contract. Version 1.3.0 adds an opt-in Prefix search checkbox, preserving whole-word defaults while allowing incremental word beginnings. It respects field/case selection, combines with fuzzy alternatives for unquoted words and highlights the matching source word. Desktop/browser preferences persist the option.
