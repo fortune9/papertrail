@@ -1,5 +1,11 @@
 # Implementation change record
 
+## Draft release lookup correction — 2026-11-15
+
+Version 1.4.1 is a patch for the hosted publication failure. The 1.4.0 workflow successfully built/downloaded/collected the installer, but the publisher used GitHub’s published-release-by-tag endpoint to retrieve a newly created draft. The mock incorrectly returned drafts from that endpoint, so the original tests missed the failure.
+
+Creation now uses the REST API response directly to retain the authoritative draft ID. Retry discovery scans the authenticated release listing with pagination; upload verification retrieves the draft by ID. Main-only publication, source/tag checks, checksums, immutable published assets and publish-after-upload ordering are retained. Regression mocks now make drafts invisible by tag and cover paginated recovery, source mismatch and missing ID verification. The old failed draft is not deleted or published by this patch. A new main push builds 1.4.1; an old-run rerun does not pick up changed code.
+
 ## GitHub build/release automation and version policy — 2026-11-14
 
 Version 1.4.0 is a minor bump for the new release capability. Added a main-push/main-targeting-PR workflow: Node 24 regression tests, Linux x64 packaging/inspection, extracted Electron smoke checks and downloadable build artifacts. Only successful main pushes enter a write-enabled release job. Explicit version increases against the PR base/previous main commit and package/lock synchronization are enforced; maintainers choose patch/minor/major through a local helper. No commit-message inference or automatic version commits are used.

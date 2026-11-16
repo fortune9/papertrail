@@ -56,22 +56,30 @@ test('release collection handles future assets and rejects corrupt, duplicate or
   }finally{await fs.rm(f.directory,{recursive:true,force:true});}
 });
 
-function githubMock(directory,{draft=false,published=false,wrongTag=false,uploadFailure=false}={}){
-  let release=(draft || published)?{id:42,draft:!published,target_commitish:commit,assets:[]}:null;
+function githubMock(directory,{draft=false,published=false,wrongTag=false,uploadFailure=false,draftPage=1}={}){
+  let release=(draft || published)?{id:42,tag_name:'v1.4.0',draft:!published,target_commitish:commit,assets:[]}:null;
   let ref=published || wrongTag?{object:{type:'commit',sha:wrongTag?other:commit}}:null;
   const calls=[];
   const fetchImpl=async url=>{
-    calls.push(['GET',url]);const value=url.includes('/git/ref/')?ref:release;
+    calls.push(['GET',url]);const parsed=new URL(url);let value;
+    if(parsed.pathname.includes('/git/ref/'))value=ref;
+    else if(parsed.pathname.includes('/releases/tags/'))value=release && !release.draft?release:null;
+    else if(parsed.pathname.endsWith('/releases')){
+      const page=Number(parsed.searchParams.get('page'));
+      if(release?.draft && page<draftPage)value=Array.from({length:100},(_,i)=>({id:1000+i,tag_name:`v0.0.${i}`,draft:false}));
+      else value=release && page===draftPage?[release]:[];
+    }else if(parsed.pathname.endsWith('/releases/42'))value=release;
+    else throw new Error('Unexpected mock API route: '+url);
     return new Response(value?JSON.stringify(value):'{}',{status:value?200:404,headers:{'Content-Type':'application/json'}});
   };
   const runCommand=async(file,args)=>{
     calls.push([file,...args]);
-    if(args[0]==='release' && args[1]==='create'){release={id:42,draft:true,target_commitish:commit,assets:[]};}
+    if(args[0]==='api' && args.includes('POST')){release={id:42,tag_name:'v1.4.0',draft:true,target_commitish:commit,assets:[]};return {stdout:JSON.stringify(release),stderr:''};}
     if(args[0]==='release' && args[1]==='upload'){
       if(uploadFailure)throw new Error('Upload failed');
       release.assets=await Promise.all((await fs.readdir(directory)).map(async name=>({name,state:'uploaded',size:(await fs.stat(path.join(directory,name))).size,digest:'sha256:'+await digest(path.join(directory,name))})));
     }
-    if(args[0]==='api'){release.draft=false;ref={object:{type:'commit',sha:commit}};}
+    if(args[0]==='api' && args.includes('PATCH')){release.draft=false;ref={object:{type:'commit',sha:commit}};}
     return {stdout:'',stderr:''};
   };
   return {calls,fetchImpl,runCommand,release:()=>release};
@@ -85,8 +93,8 @@ test('release publishing stages a draft, verifies uploads and publishes only mai
     const mock=githubMock(f.release),options={directory:f.release,version:'1.4.0',env,...mock};
     await assert.rejects(()=>publishRelease({...options,env:{...env,GITHUB_EVENT_NAME:'pull_request'}}),/only for pushes/);assert.equal(mock.calls.length,0);
     const result=await publishRelease(options);assert.equal(result.published,true);assert.equal(mock.release().draft,false);
-    const writes=mock.calls.filter(call=>call[0]==='gh');assert.deepEqual(writes.map(call=>call[1]),['release','release','api']);
-    assert.ok(writes[0].includes('--draft'));assert.equal(writes.at(-1).includes('make_latest=legacy'),true);
+    const writes=mock.calls.filter(call=>call[0]==='gh');assert.deepEqual(writes.map(call=>call[1]),['api','release','api']);
+    assert.ok(writes[0].includes('draft=true'));assert.equal(writes.at(-1).includes('make_latest=legacy'),true);
     mock.calls.length=0;const rerun=await publishRelease(options);assert.equal(rerun.published,false);assert.equal(mock.calls.some(call=>call[0]==='gh'),false);
   }finally{await fs.rm(f.directory,{recursive:true,force:true});}
 });
@@ -97,12 +105,32 @@ test('release retries preserve drafts and reject tag collisions or corrupted loc
     await collectAssets({source:f.staged,destination:f.release,version:'1.4.0',commit});
     const options={directory:f.release,version:'1.4.0',env};
     const bad=githubMock(f.release,{wrongTag:true});await assert.rejects(()=>publishRelease({...options,...bad}),/different commit/);assert.equal(bad.calls.some(call=>call[0]==='gh'),false);
-    const failed=githubMock(f.release,{uploadFailure:true});await assert.rejects(()=>publishRelease({...options,...failed}),/Upload failed/);assert.equal(failed.release().draft,true);assert.equal(failed.calls.some(call=>call[1]==='api'),false);
+    const failed=githubMock(f.release,{uploadFailure:true});await assert.rejects(()=>publishRelease({...options,...failed}),/Upload failed/);assert.equal(failed.release().draft,true);assert.equal(failed.calls.some(call=>call[0]==='gh' && call.includes('PATCH')),false);
     const changing=githubMock(f.release),originalCommand=changing.runCommand;
     changing.runCommand=async(file,args)=>{if(args[0]==='release' && args[1]==='upload'){const asset=path.join(f.release,'papertrail_1.4.0_amd64.deb'),bytes=await fs.readFile(asset);bytes[0]^=1;await fs.writeFile(asset,bytes);}return originalCommand(file,args);};
     await assert.rejects(()=>publishRelease({...options,...changing}),/confirm all release asset uploads/);assert.equal(changing.release().draft,true);
     await collectAssets({source:f.staged,destination:f.release,version:'1.4.0',commit});
-    const retry=githubMock(f.release,{draft:true});assert.equal((await publishRelease({...options,...retry})).published,true);assert.equal(retry.calls.some(call=>call[2]==='create'),false);
+    const retry=githubMock(f.release,{draft:true});assert.equal((await publishRelease({...options,...retry})).published,true);assert.equal(retry.calls.some(call=>call[0]==='gh' && call[1]==='api' && call.includes('POST')),false);
     await fs.appendFile(path.join(f.release,'papertrail_1.4.0_amd64.deb'),'tampered');const corrupt=githubMock(f.release);await assert.rejects(()=>publishRelease({...options,...corrupt}),/checksum/);assert.equal(corrupt.calls.length,0);
+  }finally{await fs.rm(f.directory,{recursive:true,force:true});}
+});
+
+test('drafts invisible to by-tag lookup are resumed across list pages and verified by release ID',async()=>{
+  const f=await fixture();
+  try{
+    await collectAssets({source:f.staged,destination:f.release,version:'1.4.0',commit});
+    const options={directory:f.release,version:'1.4.0',env};
+    const mock=githubMock(f.release,{draft:true,draftPage:2});
+    assert.equal((await publishRelease({...options,...mock})).published,true);
+    assert.ok(mock.calls.some(call=>call[0]==='GET' && call[1].endsWith('/releases?per_page=100&page=2')));
+    assert.ok(mock.calls.some(call=>call[0]==='GET' && call[1].endsWith('/releases/42')));
+    assert.equal(mock.calls.some(call=>call[0]==='gh' && call.includes('POST')),false);
+    const wrong=githubMock(f.release,{draft:true});wrong.release().target_commitish=other;
+    await assert.rejects(()=>publishRelease({...options,...wrong}),/matching source tag\/commit/);
+    assert.equal(wrong.calls.some(call=>call[0]==='gh'),false);
+    const missing=githubMock(f.release,{draft:true}),fetch=missing.fetchImpl;
+    missing.fetchImpl=async(url,init)=>url.endsWith('/releases/42')?new Response('{}',{status:404}):fetch(url,init);
+    await assert.rejects(()=>publishRelease({...options,...missing}),/pending draft by release ID/);
+    assert.equal(missing.calls.some(call=>call[0]==='gh' && call.includes('PATCH')),false);
   }finally{await fs.rm(f.directory,{recursive:true,force:true});}
 });

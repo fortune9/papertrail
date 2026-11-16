@@ -36,17 +36,31 @@ export async function publishRelease({directory='release-assets',version,env=pro
     for(let depth=0;object?.type==='tag' && depth<8;depth++)object=(await get(`git/tags/${object.sha}`))?.object;
     if(object?.type!=='commit' || object.sha!==commit)throw new Error('This version tag already points to a different commit. Bump the version.');
   }
+  // The by-tag endpoint returns published releases, not pending draft tags.
   let release=await get(`releases/tags/${tag}`);
+  if(!release){
+    for(let page=1;;page++){
+      const releases=await get(`releases?per_page=100&page=${page}`);
+      if(!Array.isArray(releases))throw new Error('Could not list releases to locate an existing draft.');
+      release=releases.find(item=>item.tag_name===tag);
+      if(release || releases.length<100)break;
+    }
+  }
   if(release && !ref && (!release.draft || release.target_commitish!==commit))throw new Error('An existing release has no matching source tag/commit.');
   if(release && !release.draft)return {tag,published:false,message:'Matching release already published; existing assets were preserved.'};
   const command=(args)=>runCommand('gh',args,{env,timeout:300000,maxBuffer:1024*1024});
   if(!release){
-    await command(['release','create',tag,'--repo',repo,'--target',commit,'--title',`Papertrail ${version}`,'--draft','--generate-notes']);
-    release=await get(`releases/tags/${tag}`);
+    const {stdout}=await command(['api',`repos/${repo}/releases`,'--method','POST',
+      '-f',`tag_name=${tag}`,'-f',`target_commitish=${commit}`,'-f',`name=Papertrail ${version}`,
+      '-F','draft=true','-F','generate_release_notes=true']);
+    // Keep the authoritative ID from creation; the draft is not visible by tag.
+    release=JSON.parse(stdout);
+
   }
-  if(!release?.draft || !Number.isSafeInteger(release.id))throw new Error('Expected a draft release before uploading assets.');
+  if(!release?.draft || !Number.isSafeInteger(release.id) || release.tag_name!==tag || (!ref && release.target_commitish!==commit))throw new Error('GitHub did not return a valid draft release for this tag/source commit.');
   await command(['release','upload',tag,...files.map(file=>path.join(directory,file)),'--repo',repo,'--clobber']);
-  const uploaded=await get(`releases/tags/${tag}`);
+  const uploaded=await get(`releases/${release.id}`);
+  if(!uploaded?.draft || uploaded.id!==release.id || uploaded.tag_name!==tag)throw new Error('Could not verify the pending draft by release ID.');
   for(const file of files){
     const asset=uploaded?.assets?.find(asset=>asset.name===file),expected=snapshots.get(file);
     if(!asset || asset.state!=='uploaded' || asset.size!==expected.size || (asset.digest && asset.digest!==`sha256:${expected.sha256}`))throw new Error('GitHub did not confirm all release asset uploads. The draft was preserved for retry.');
